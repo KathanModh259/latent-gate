@@ -1,0 +1,1 @@
+"""LatentGate test suite."""

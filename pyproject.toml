@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "latent-gate"
+version = "0.1.0"
+description = "Local-first vision-language pipeline inspired by VL-JEPA. Process locally, send smart, pay less."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Kathan Modh"}
+]
+keywords = [
+    "vlm", "vision-language", "ollama", "token-optimization",
+    "vl-jepa", "local-llm", "cost-reduction", "selective-decoding"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black>=23.0",
+    "ruff>=0.1.0",
+]
+video = [
+    "opencv-python>=4.9.0",
+]
+embeddings = [
+    "torch>=2.0.0",
+    "sentence-transformers>=2.7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/YOUR_USERNAME/latent-gate"
+Repository = "https://github.com/YOUR_USERNAME/latent-gate"
+Issues = "https://github.com/YOUR_USERNAME/latent-gate/issues"
+
+[project.scripts]
+latent-gate = "latent_gate.cli:main"
+
+[tool.black]
+line-length = 100
+
+[tool.ruff]
+line-length = 100

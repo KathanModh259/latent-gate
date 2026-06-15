@@ -1,0 +1,17 @@
+# LatentGate — Dependencies
+# =========================
+
+# Core (required)
+requests>=2.31.0
+
+# Development (optional)
+# pytest>=7.0
+# black>=23.0
+# ruff>=0.1.0
+
+# Video processing (optional)
+# opencv-python>=4.9.0
+
+# Advanced embeddings (optional)
+# torch>=2.0.0
+# sentence-transformers>=2.7.0
