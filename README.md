@@ -26,8 +26,6 @@ then sends only compact semantic payloads to cloud LLMs — cutting API token co
 
 </div>
 
-> **Save this image**: Download the architecture diagram above and place it at `docs/architecture.png` in your repo.
-
 ---
 
 ## 💡 The Problem
