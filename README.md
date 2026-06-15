@@ -87,7 +87,7 @@ with LatentGatePipeline(config) as pipeline:
 ollama pull llava:7b && ollama pull llama3:8b
 
 # 2. Install
-git clone https://github.com/YOUR_USERNAME/latent-gate.git
+git clone https://github.com/KathanModh259/latent-gate.git
 cd latent-gate && pip install -r requirements.txt
 
 # 3. Run (Image)
@@ -196,7 +196,7 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
   author = {Kathan Modh},
   title = {LatentGate: Local-First Vision-Language Pipeline Inspired by VL-JEPA},
   year = {2026},
-  url = {https://github.com/YOUR_USERNAME/latent-gate}
+  url = {https://github.com/KathanModh259/latent-gate}
 }
 ```
 
@@ -212,7 +212,7 @@ MIT License — see [LICENSE](LICENSE).
 
 <div align="center">
 
-**Built with 🧠 by [Kathan Modh](https://github.com/YOUR_USERNAME)**
+**Built with 🧠 by [Kathan Modh](https://github.com/KathanModh259)**
 
 *Process locally. Send smart. Pay less.*
 

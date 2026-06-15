@@ -46,9 +46,9 @@ embeddings = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/YOUR_USERNAME/latent-gate"
-Repository = "https://github.com/YOUR_USERNAME/latent-gate"
-Issues = "https://github.com/YOUR_USERNAME/latent-gate/issues"
+Homepage = "https://github.com/KathanModh259/latent-gate"
+Repository = "https://github.com/KathanModh259/latent-gate"
+Issues = "https://github.com/KathanModh259/latent-gate/issues"
 
 [project.scripts]
 latent-gate = "latent_gate.cli:main"

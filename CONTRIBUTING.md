@@ -42,7 +42,7 @@ We especially welcome contributions in these areas:
 ## Development Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/latent-gate.git
+git clone https://github.com/KathanModh259/latent-gate.git
 cd latent-gate
 python -m venv .venv
 source .venv/bin/activate
