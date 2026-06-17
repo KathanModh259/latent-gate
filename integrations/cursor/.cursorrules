@@ -1,7 +1,8 @@
+<!-- markdownlint-disable -->
 # LatentGate Token Optimization Rules for Cursor
-# ==============================================
-# Add these rules to your project root as .cursorrules to make Cursor
-# automatically use LatentGate for token compression.
+
+Add this file to your project root as `.cursorrules` to make Cursor
+automatically use LatentGate for token compression.
 
 ## Token Optimization Strategy
 
@@ -9,60 +10,12 @@ You have access to LatentGate, a local compression pipeline running on
 the user's machine. Use it proactively to save token costs.
 
 ### When to compress images
+
 - User attaches a screenshot or image file
 - User asks to analyze visual content
 - Image is referenced in code (uploads, assets, etc.)
 
-Call: `python -m latent_gate <image_path> "<question>" --provider ollama`
+Call:
 
-### When to compress text/prompts
-- A pasted file or context exceeds ~500 tokens
-- Working with long specifications, READMEs, or documentation
-- Conversation history is approaching context limits
-
-Call: `python -m latent_gate --text-file <path> --mode auto --provider ollama`
-
-### When to compress RAG documents
-- Multiple retrieved chunks (>2 documents)
-- Search results with verbose content
-- Documentation lookups
-
-Call: Use `pipeline.query_documents()` Python API
-
-## Output Format
-
-LatentGate returns structured JSON with:
-- `compact_payload`: The compressed representation (~150 tokens)
-- `tokens_saved`: How much you saved
-- `extracted_data`: Structured semantic content
-
-Use the `compact_payload` for your reasoning, not the raw input.
-
-## Token Savings Targets
-
-| Input Type | Target Compression |
-|---|---|
-| Image | 1200 → 150 (87% saved) |
-| Long prompt | 800 → 120 (85% saved) |
-| RAG docs | 3000 → 450 (85% saved) |
-
-## Fallback Behavior
-
-If Ollama is not running or LatentGate fails:
-1. Inform the user briefly: "LatentGate unavailable, using raw input"
-2. Proceed with normal Cursor behavior
-3. Continue without errors
-
-## Setup Check
-
-First time using in a new project, verify:
 ```bash
-which ollama && python -c "import latent_gate" && echo "Ready"
-```
-
-If not installed, instruct user:
-```bash
-pip install latent-gate
-ollama pull llava:7b
-ollama pull llama3:8b
-```
+python -m latent_gate <image_path> "<question>" --provider ollama
