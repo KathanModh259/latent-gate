@@ -1,0 +1,25 @@
+{
+  "experimental": {
+    "modelContextProtocolServers": [
+      {
+        "transport": {
+          "type": "stdio",
+          "command": "python",
+          "args": ["-m", "latent_gate.mcp_server"]
+        }
+      }
+    ]
+  },
+  "customCommands": [
+    {
+      "name": "compress-image",
+      "prompt": "Use the LatentGate compress_image tool to compress the attached image, then analyze the compact payload to answer my question.",
+      "description": "Compress image locally before analysis"
+    },
+    {
+      "name": "compress-context",
+      "prompt": "Use the LatentGate compress_text tool to compress the current file/selection, then work with the compact payload.",
+      "description": "Compress long context locally"
+    }
+  ]
+}

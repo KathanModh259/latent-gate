@@ -1,0 +1,5 @@
+# Required for MCP server integration (Claude Desktop, Cursor, Cline, Continue, Zed)
+mcp>=0.9.0
+
+# Required for all integrations
+latent-gate>=0.3.0

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "latent-gate": {
+      "command": "python",
+      "args": ["-m", "latent_gate.mcp_server"],
+      "description": "Local-first compression for images, text, and documents. Saves ~80% of tokens."
+    }
+  }
+}
