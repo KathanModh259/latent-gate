@@ -5,6 +5,17 @@ All notable changes to LatentGate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-06-22
+
+### Fixed
+
+- **`query_universal` parallel text compression** — Fixed missing `question` parameter in parallel text processing path, which prevented context-aware compression (condense mode)
+- **Parallel batch result ordering** — Fixed sorting bug where error results would all cluster at index 0 instead of preserving original order
+- **`query_image_upload` missing null check** — Added pipeline null check in the image upload endpoint to prevent `UnboundLocalError`
+- **Dead code removal** — Removed unused `PipelineConfig` instantiation in `/query/image` endpoint
+- **Variable shadowing in `logging_config`** — Fixed local `logger` variable shadowing module-level `logger`
+- **Parameter shadowing in `cost_tracker` and `config_loader`** — Renamed `format` parameter to `fmt` to avoid shadowing built-in
+
 ## [0.5.0] - 2026-06-22
 
 ### Added
@@ -94,6 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Content-hash caching
 - CLI plus Python API
 
+[0.5.3]: https://github.com/KathanModh259/latent-gate/releases/tag/v0.5.3
 [0.5.0]: https://github.com/KathanModh259/latent-gate/releases/tag/v0.5.0
 [0.4.0]: https://github.com/KathanModh259/latent-gate/releases/tag/v0.4.0
 [0.3.0]: https://github.com/KathanModh259/latent-gate/releases/tag/v0.3.0
