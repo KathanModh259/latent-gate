@@ -355,7 +355,7 @@ LatentGate works as a Model Context Protocol (MCP) server with every major AI co
 
 | Tool | Status | Setup |
 |------|--------|-------|
-| VS Code / Copilot | Supported | [Extension](https://marketplace.visualstudio.com/items?itemName=KathanModh.latent-gate) |
+| VS Code / Copilot | Supported | [Extension](https://marketplace.visualstudio.com/items?itemName=KathanModh259.latent-gate-vscode) |
 | Claude Desktop | Supported | MCP Config |
 | Claude Code (CLI) | Supported | Skill |
 | Cursor | Supported | MCP Config |
