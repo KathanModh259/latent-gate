@@ -14,7 +14,7 @@
 [![MCP](https://img.shields.io/badge/MCP-supported-purple.svg)](https://modelcontextprotocol.io)
 [![Tests](https://img.shields.io/badge/tests-62%20passed-brightgreen.svg)](tests/)
 
-[**Quick Start**](#-quick-start) | [**Python API**](#python-api) | [**REST API**](#rest-api) | [**AI Tool Integrations**](#-ai-coding-tool-integration-mcp) | [**Benchmarks**](#-cost-benchmarks) | [**Contributing**](#-contributing)
+[**Quick Start**](#quick-start) | [**Python API**](#python-api) | [**REST API**](#rest-api) | [**AI Tool Integrations**](#ai-coding-tool-integration-mcp) | [**Benchmarks**](#cost-benchmarks) | [**Contributing**](#contributing)
 
 </div>
 
@@ -265,7 +265,13 @@ asyncio.run(main())
 ## Video Processing
 
 ```python
-from latent_gate import VideoProcessor, VideoConfig
+from latent_gate import LatentGatePipeline, PipelineConfig, VideoProcessor, VideoConfig
+
+config = PipelineConfig(
+    vision_model="llava:7b",
+    remote_provider="ollama",
+    remote_model="llama3:8b",
+)
 
 video_config = VideoConfig(
     fps=1.0,            # Extract 1 frame per second
@@ -454,8 +460,8 @@ See `integrations/` folder for detailed setup guides per tool.
 
 ### At Scale (10,000 image queries with gpt-4o-mini)
 
-| | Traditional | LatentGate | Savings |
-|--|:-----------:|:----------:|:-------:|
+| Metric | Traditional | LatentGate | Savings |
+|--------|:-----------:|:----------:|:-------:|
 | Input tokens | 12,000,000 | 2,000,000 | 10M tokens |
 | Cost | $1.80 | $0.30 | $1.50 (83%) |
 
