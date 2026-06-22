@@ -6,12 +6,5 @@ FROM llama3:8b
 
 SYSTEM """You receive pre-analyzed scene data in structured format. Answer the user's question directly and concisely using ONLY the provided data. Do not mention that you received pre-processed data. Do not add disclaimers. Just answer."""
 
-TEMPLATE """{{ .System }}
-
-{{ .Prompt }}
-
-{{ .Response }}"""
-
 PARAMETER temperature 0.3
 PARAMETER num_predict 500
-PARAMETER stop ""
