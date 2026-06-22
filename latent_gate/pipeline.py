@@ -226,7 +226,7 @@ class LatentGatePipeline:
             start = time.time()
 
             future_image = self._executor.submit(self.local_processor.process, image)
-            future_text = self._executor.submit(self.text_processor.compress, text)
+            future_text = self._executor.submit(self.text_processor.compress, text, "auto", question)
 
             image_payload = future_image.result()
             text_payload = future_text.result()
@@ -350,7 +350,11 @@ class LatentGatePipeline:
         
         # Sort results by original order
         path_to_index = {path: i for i, path in enumerate(image_paths)}
-        results.sort(key=lambda r: path_to_index.get(r.get("payload", {}).get("source_image", ""), 0))
+        results.sort(
+            key=lambda r: path_to_index.get(
+                r.get("payload", {}).get("source_image", ""), len(image_paths)
+            )
+        )
         
         logger.info(f"Parallel batch complete: {len(results)} images processed")
         return results

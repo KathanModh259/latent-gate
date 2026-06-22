@@ -211,14 +211,6 @@ async def query_image(request: ImageQueryRequest):
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
     
     try:
-        # Override config if specified
-        if request.provider or request.model:
-            PipelineConfig(
-                remote_provider=request.provider or app.state.config.remote_provider,
-                remote_model=request.model or app.state.config.remote_model,
-            )
-            # Note: In production, you'd want to cache decoders per config
-        
         result = pipeline.query(request.image_path, request.question)
         
         query_count += 1
@@ -336,6 +328,9 @@ async def query_image_upload(
     """Upload an image and query it."""
     import tempfile
     import os
+    
+    if not pipeline:
+        raise HTTPException(status_code=503, detail="Pipeline not initialized")
     
     # Save uploaded file temporarily
     with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp:

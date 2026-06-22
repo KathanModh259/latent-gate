@@ -56,8 +56,9 @@ export function registerCommands(
                     statusBar.updateSavings(result.tokensSaved || 0);
                     dashboard.refresh();
 
+                    const timingMs = result.timing?.totalMs?.toFixed(0) ?? '0';
                     vscode.window.showInformationMessage(
-                        `LatentGate: Compressed to ~${result.tokensEstimated} tokens (${result.timing.totalMs.toFixed(0)}ms)`
+                        `LatentGate: Compressed to ~${result.tokensEstimated} tokens (${timingMs}ms)`
                     );
                 } catch (err: any) {
                     vscode.window.showErrorMessage(`LatentGate: ${err.message}`);
@@ -101,8 +102,9 @@ export function registerCommands(
                     statusBar.updateSavings(result.tokensSaved || 0);
                     dashboard.refresh();
 
+                    const selTimingMs = result.timing?.totalMs?.toFixed(0) ?? '0';
                     vscode.window.showInformationMessage(
-                        `LatentGate: ${result.compressionRatio || '1.0x'} compression (${result.timing.totalMs.toFixed(0)}ms)`
+                        `LatentGate: ${result.compressionRatio || '1.0x'} compression (${selTimingMs}ms)`
                     );
                 } catch (err: any) {
                     vscode.window.showErrorMessage(`LatentGate: ${err.message}`);
@@ -152,8 +154,9 @@ export function registerCommands(
                     statusBar.updateSavings(result.tokensSaved || 0);
                     dashboard.refresh();
 
+                    const docTimingMs = result.timing?.totalMs?.toFixed(0) ?? '0';
                     vscode.window.showInformationMessage(
-                        `LatentGate: ${result.compressionRatio || '1.0x'} compression (${result.timing.totalMs.toFixed(0)}ms)`
+                        `LatentGate: ${result.compressionRatio || '1.0x'} compression (${docTimingMs}ms)`
                     );
                 } catch (err: any) {
                     vscode.window.showErrorMessage(`LatentGate: ${err.message}`);
@@ -259,9 +262,9 @@ function formatResult(result: CompressionResult, title: string): string {
     }
 
     lines.push(
-        `- **Local Processing:** ${result.timing.localMs.toFixed(0)}ms`,
-        `- **Remote API:** ${result.timing.remoteMs.toFixed(0)}ms`,
-        `- **Total Time:** ${result.timing.totalMs.toFixed(0)}ms`,
+        `- **Local Processing:** ${result.timing?.localMs?.toFixed(0) ?? '0'}ms`,
+        `- **Remote API:** ${result.timing?.remoteMs?.toFixed(0) ?? '0'}ms`,
+        `- **Total Time:** ${result.timing?.totalMs?.toFixed(0) ?? '0'}ms`,
         '',
         '## Compact Prompt',
         '```',

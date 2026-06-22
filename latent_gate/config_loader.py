@@ -74,7 +74,7 @@ def load_config(
 def save_config(
     config: PipelineConfig,
     filepath: str,
-    format: Optional[str] = None,
+    fmt: Optional[str] = None,
 ):
     """
     Save configuration to a file.
@@ -82,7 +82,7 @@ def save_config(
     Args:
         config: PipelineConfig instance
         filepath: Output file path
-        format: Force format (yaml, toml, json). Auto-detected from extension if None.
+        fmt: Force format (yaml, toml, json). Auto-detected from extension if None.
     """
     path = Path(filepath)
     
@@ -90,22 +90,22 @@ def save_config(
     data = _config_to_dict(config)
     
     # Detect format
-    if format is None:
+    if fmt is None:
         suffix = path.suffix.lower()
         if suffix in (".yaml", ".yml"):
-            format = "yaml"
+            fmt = "yaml"
         elif suffix == ".toml":
-            format = "toml"
+            fmt = "toml"
         else:
-            format = "json"
+            fmt = "json"
     
     # Ensure parent directory exists
     path.parent.mkdir(parents=True, exist_ok=True)
     
     # Save
-    if format == "yaml":
+    if fmt == "yaml":
         _save_yaml(path, data)
-    elif format == "toml":
+    elif fmt == "toml":
         _save_toml(path, data)
     else:
         _save_json(path, data)

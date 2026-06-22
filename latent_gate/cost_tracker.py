@@ -414,7 +414,7 @@ class CostTracker:
     def export_report(
         self,
         filepath: str,
-        format: str = "json",
+        fmt: str = "json",
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
     ):
@@ -423,17 +423,17 @@ class CostTracker:
         
         Args:
             filepath: Output file path
-            format: Export format ("json" or "csv")
+            fmt: Export format ("json" or "csv")
             start_time: Start timestamp filter
             end_time: End timestamp filter
         """
         stats = self.get_statistics(start_time, end_time)
         
-        if format == "json":
+        if fmt == "json":
             with open(filepath, "w") as f:
                 json.dump(stats, f, indent=2)
         
-        elif format == "csv":
+        elif fmt == "csv":
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
@@ -461,9 +461,9 @@ class CostTracker:
                 writer.writerows(rows)
         
         else:
-            raise ValueError(f"Unsupported format: {format}")
+            raise ValueError(f"Unsupported format: {fmt}")
         
-        logger.info(f"Exported report to {filepath} ({format})")
+        logger.info(f"Exported report to {filepath} ({fmt})")
     
     def clear_history(self, before_timestamp: Optional[float] = None):
         """

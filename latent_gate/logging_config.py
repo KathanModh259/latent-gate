@@ -265,8 +265,8 @@ def setup_logging(
     # Set per-module levels
     if module_levels:
         for module, module_level in module_levels.items():
-            logger = logging.getLogger(module)
-            logger.setLevel(getattr(logging, module_level.upper(), logging.INFO))
+            module_logger = logging.getLogger(module)
+            module_logger.setLevel(getattr(logging, module_level.upper(), logging.INFO))
     
     # Configure LatentGate modules
     latentgate_modules = [
