@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "latent-gate"
-version = "0.4.0"
-description = "Local-first vision-language pipeline inspired by VL-JEPA. Compress images, text, conversations, and RAG documents locally via Ollama before sending to any LLM API. Includes MCP server for Claude Code, Cursor, Cline, Continue, and Zed. ~80% token savings."
+version = "0.5.0"
+description = "Local-first vision-language pipeline inspired by VL-JEPA. Compress images, text, conversations, and RAG documents locally via Ollama before sending to any LLM API. Includes MCP server, FastAPI server, video processing, and more. ~80% token savings."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
@@ -64,11 +64,31 @@ embeddings = [
     "torch>=2.0.0",
     "sentence-transformers>=2.7.0",
 ]
+api = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "python-multipart>=0.0.6",
+]
+multilang = [
+    "langdetect>=1.0.9",
+]
+config = [
+    "pyyaml>=6.0",
+    "tomli>=2.0.0; python_version < '3.11'",
+    "tomli_w>=1.0.0",
+]
 all = [
     "mcp>=0.9.0",
     "opencv-python>=4.9.0",
     "torch>=2.0.0",
     "sentence-transformers>=2.7.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "python-multipart>=0.0.6",
+    "langdetect>=1.0.9",
+    "pyyaml>=6.0",
+    "tomli>=2.0.0; python_version < '3.11'",
+    "tomli_w>=1.0.0",
 ]
 
 [project.urls]
@@ -79,6 +99,7 @@ Changelog = "https://github.com/KathanModh259/latent-gate/blob/main/CHANGELOG.md
 
 [project.scripts]
 latent-gate = "latent_gate.cli:main"
+latent-gate-api = "latent_gate.api_server:main"
 
 [tool.setuptools.packages.find]
 include = ["latent_gate*"]

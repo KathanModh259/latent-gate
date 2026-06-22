@@ -18,7 +18,6 @@ space locally, lightweight decoding remotely.
 import json
 import time
 import logging
-from typing import Optional
 from dataclasses import dataclass, field, asdict
 
 import requests
@@ -252,7 +251,7 @@ Return ONLY valid JSON:
             cleaned = raw.strip()
             if cleaned.startswith("```"):
                 lines = cleaned.split("\n")
-                lines = [l for l in lines if not l.strip().startswith("```")]
+                lines = [line for line in lines if not line.strip().startswith("```")]
                 cleaned = "\n".join(lines)
 
             data = json.loads(cleaned)

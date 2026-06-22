@@ -45,10 +45,20 @@ LatentGate:   Image → Local Ollama (FREE) → Cloud LLM (200 tokens) → Answe
 - 🏠 **Local-First** — Vision and text compression runs on Ollama (free)
 - 💰 **~80% Token Savings** — Send ~200 tokens instead of ~1,200
 - 🔌 **MCP Server** — Works with Claude Desktop, Cursor, Cline, Continue, Zed
-- 🎯 **Selective Decoding** — For video, only call API when scene changes (~2.85x fewer calls)
+- 🎯 **Selective Decoding** — For video, only call API when scene changes (~2.85x fewer calls) with cosine similarity
 - 📝 **Text Compression** — Long prompts, conversations, RAG docs compressed locally
 - ⚡ **Speed Optimized** — Connection pooling, model preloading, parallel processing
 - 🔌 **Multi-Provider** — OpenAI, Anthropic, Google, Groq, or any OpenAI-compatible endpoint
+- 🌐 **REST API** — FastAPI server for web application integration
+- 📹 **Video Processing** — Direct video file input with automatic frame extraction
+- 📊 **Cost Tracking** — Persistent cost tracking with analytics and exportable reports
+- ⏱️ **Async Support** — Non-blocking async methods for modern Python applications
+- 🔄 **Streaming Responses** — Stream responses from remote LLMs
+- 📝 **Config Persistence** — YAML/TOML config files with environment variable overrides
+- 📋 **Structured Logging** — JSON-formatted logging with rotation and correlation IDs
+- 🐳 **Docker Support** — Dockerfile and docker-compose for easy deployment
+- 🔌 **Plugin System** — Custom processors for domain-specific compression
+- 🌍 **Multi-Language** — Support for 30+ languages with automatic detection
 
 ---
 
@@ -62,6 +72,12 @@ pip install latent-gate
 
 # With MCP server (for Claude Desktop, Cursor, Cline, etc.)
 pip install latent-gate[mcp]
+
+# With API server (for web applications)
+pip install latent-gate[api]
+
+# With all features
+pip install latent-gate[all]
 
 # Pull required Ollama models
 ollama pull llava:7b
@@ -79,6 +95,9 @@ python -m latent_gate --text "Your long prompt here..." --provider ollama -v
 
 # Image + Text combined
 python -m latent_gate photo.jpg "Analyze" --text "Extra context..." -v
+
+# Start API server
+latent-gate-api
 ```
 
 ### Python API
@@ -103,6 +122,141 @@ with LatentGatePipeline(config) as pipeline:
     print(result["tokens_estimated"])
 ```
 
+### REST API
+
+```bash
+# Start the API server
+latent-gate-api
+
+# Or with custom host/port
+LATENTGATE_HOST=127.0.0.1 LATENTGATE_PORT=9000 latent-gate-api
+```
+
+```python
+import requests
+
+# Image query
+response = requests.post("http://localhost:8000/query/image", json={
+    "image_path": "photo.jpg",
+    "question": "What is in this image?"
+})
+
+# Text query
+response = requests.post("http://localhost:8000/query/text", json={
+    "text": "Your long prompt here...",
+    "question": "Summarize this"
+})
+
+# Health check
+response = requests.get("http://localhost:8000/health")
+```
+
+### Video Processing
+
+```python
+from latent_gate import VideoProcessor, VideoConfig
+
+video_config = VideoConfig(fps=1.0, max_frames=50)
+
+with VideoProcessor(config, video_config) as processor:
+    result = processor.process_video("video.mp4", "Describe the action")
+    print(result["statistics"])
+```
+
+### Async Support
+
+```python
+import asyncio
+from latent_gate import AsyncLatentGatePipeline, PipelineConfig
+
+async def main():
+    async with AsyncLatentGatePipeline() as pipeline:
+        result = await pipeline.query("photo.jpg", "What is this?")
+        
+        # Process multiple images concurrently
+        results = await pipeline.query_many_images(
+            ["img1.jpg", "img2.jpg", "img3.jpg"],
+            "Describe each image"
+        )
+
+asyncio.run(main())
+```
+
+### Configuration File
+
+```yaml
+# latentgate.yaml
+vision_model: llava:7b
+predictor_model: llama3:8b
+remote_provider: openai
+remote_model: gpt-4o-mini
+selective_decoding: true
+similarity_threshold: 0.85
+use_embeddings: true
+```
+
+```python
+from latent_gate import get_config, LatentGatePipeline
+
+config = get_config("latentgate.yaml")
+with LatentGatePipeline(config) as pipeline:
+    result = pipeline.query("photo.jpg", "Describe this")
+```
+
+### Docker
+
+```bash
+# Start with Docker Compose
+docker-compose up -d
+
+# Or build and run manually
+docker build -t latent-gate .
+docker run -p 8000:8000 latent-gate
+```
+
+### Multi-Language Support
+
+```python
+from latent_gate import detect_language, MultiLanguageProcessor
+
+# Detect language
+lang = detect_language("Esto es un texto en español")
+print(f"Detected: {lang.name} ({lang.confidence:.0%})")
+
+# Process with auto-translation
+processor = MultiLanguageProcessor()
+text, lang_info = processor.process("Texto en español para analizar")
+```
+
+### Cost Tracking
+
+```python
+from latent_gate import CostTracker
+
+tracker = CostTracker()
+tracker.record_usage(
+    query_type="image",
+    provider="openai",
+    model="gpt-4o-mini",
+    input_tokens=150,
+    output_tokens=200,
+    tokens_saved=1000,
+    compression_ratio=6.7,
+    latency_ms=1500,
+)
+
+stats = tracker.get_statistics()
+print(f"Total cost: ${stats['total_cost']:.4f}")
+
+# Get cost projection
+projection = tracker.get_cost_projection(
+    daily_queries=1000,
+    provider="openai",
+    model="gpt-4o-mini"
+)
+print(f"Monthly savings: ${projection['savings']['monthly']:.2f}")
+```
+
 ---
 
 ## 🔌 Use With AI Coding Tools (MCP Integration)
@@ -111,14 +265,32 @@ LatentGate works as a Model Context Protocol (MCP) server with every major AI co
 
 ### Supported Tools
 
-| Tool              | Status      |
-| ----------------- | ----------- |
-| Claude Desktop    | Supported   |
-| Claude Code (CLI) | Supported   |
-| Cursor            | Supported   |
-| Cline (VS Code)   | Supported   |
-| Continue.dev      | Supported   |
-| Zed Editor        | Supported   |
+| Tool              | Status      | Extension |
+| ----------------- | ----------- | --------- |
+| VSCode / Copilot  | Supported   | [Marketplace](https://marketplace.visualstudio.com/items?itemName=KathanModh.latent-gate) |
+| Claude Desktop    | Supported   | MCP Config |
+| Claude Code (CLI) | Supported   | Skill |
+| Cursor            | Supported   | MCP Config |
+| Cline (VS Code)   | Supported   | MCP Config |
+| Continue.dev      | Supported   | MCP Config |
+| Zed Editor        | Supported   | MCP Config |
+
+### VSCode Extension
+
+Install from the VSCode Marketplace:
+
+```bash
+code --install-extension KathanModh.latent-gate
+```
+
+Or search "LatentGate" in VSCode Extensions panel.
+
+**Features:**
+- Right-click any image → Compress with LatentGate
+- Select text → `Ctrl+Shift+Alt+C` to compress
+- Cost dashboard in activity bar
+- Auto-configures MCP for Copilot Chat
+- Status bar showing token savings
 
 ### Quick Setup
 
@@ -214,8 +386,16 @@ latent-gate/
 │   ├── fast_client.py
 │   ├── cache.py
 │   ├── pipeline.py
+│   ├── async_pipeline.py
 │   ├── cli.py
-│   └── mcp_server.py
+│   ├── mcp_server.py
+│   ├── api_server.py
+│   ├── video_processor.py
+│   ├── cost_tracker.py
+│   ├── config_loader.py
+│   ├── logging_config.py
+│   ├── plugin_system.py
+│   └── multilang.py
 ├── integrations/
 │   ├── README.md
 │   ├── mcp_server/
@@ -228,9 +408,20 @@ latent-gate/
 ├── docs/
 │   ├── architecture.png
 │   └── how_it_works.md
+├── .github/
+│   └── workflows/
+│       ├── ci.yml
+│       └── publish.yml
+├── Dockerfile
+├── docker-compose.yml
+├── docker-compose.dev.yml
+├── .dockerignore
+├── MANIFEST.in
+├── publish.py
 ├── CHANGELOG.md
 ├── LICENSE
 ├── README.md
+├── CONTRIBUTING.md
 ├── pyproject.toml
 └── requirements.txt
 ```

@@ -31,13 +31,14 @@ First off, thanks for considering contributing! 🎉
 
 ### Priority Areas
 We especially welcome contributions in these areas:
-- 🖼️ New vision model integrations
-- 📹 Video processing improvements
-- 🧮 Better semantic similarity algorithms
-- 🌐 API server wrappers (FastAPI, Flask)
-- 📊 Cost tracking and analytics
+- 🖼️ New vision model integrations (Florence-2, InternVL, etc.)
+- 🧮 Custom similarity plugins for domain-specific use cases
+- 🌐 Additional API server features (WebSocket, gRPC)
+- 📊 Advanced cost analytics and optimization suggestions
 - 🧪 Test coverage improvements
 - 📖 Documentation and examples
+- 🌍 Additional language support and translation improvements
+- 🔌 Plugin development for specialized industries
 
 ## Development Setup
 

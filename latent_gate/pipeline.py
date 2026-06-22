@@ -15,8 +15,7 @@ from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from latent_gate.config import PipelineConfig
-from latent_gate.payload import SemanticPayload
-from latent_gate.text_processor import TextProcessor, TextPayload
+from latent_gate.text_processor import TextProcessor
 from latent_gate.local_processor import LocalProcessor
 from latent_gate.selective_decoder import SelectiveDecoder
 from latent_gate.remote_decoder import RemoteDecoder, create_decoder
@@ -60,7 +59,8 @@ class LatentGatePipeline:
         self.text_processor = TextProcessor(self.config)
         self.text_processor.client = self.client  # Share client
         self.selective_decoder = SelectiveDecoder(
-            similarity_threshold=self.config.similarity_threshold
+            similarity_threshold=self.config.similarity_threshold,
+            use_embeddings=self.config.use_embeddings,
         )
         self.remote_decoder: RemoteDecoder = create_decoder(self.config, client=self.client)
 
@@ -266,14 +266,226 @@ class LatentGatePipeline:
     # Batch Processing
     # ================================================================
 
-    def query_batch(self, image_paths: list, question: str) -> list:
-        """Process multiple images with selective decoding."""
-        results = []
-        for i, path in enumerate(image_paths):
-            logger.info(f"Frame {i + 1}/{len(image_paths)}: {path}")
-            results.append(self.query(path, question))
-        logger.info(f"Batch: {self.selective_decoder.stats}")
+    def query_batch(self, image_paths: list, question: str, parallel: bool = False, max_workers: int = 3) -> list:
+        """
+        Process multiple images.
+        
+        Args:
+            image_paths: List of image file paths.
+            question: Question to ask about each image.
+            parallel: If True, process images in parallel (no selective decoding).
+                     If False, process sequentially with selective decoding.
+            max_workers: Maximum parallel workers (only used when parallel=True).
+            
+        Returns:
+            List of result dictionaries.
+        """
+        if not parallel:
+            # Sequential processing with selective decoding
+            results = []
+            for i, path in enumerate(image_paths):
+                logger.info(f"Frame {i + 1}/{len(image_paths)}: {path}")
+                results.append(self.query(path, question))
+            logger.info(f"Batch: {self.selective_decoder.stats}")
+            return results
+        
+        # Parallel processing without selective decoding
+        logger.info(f"Parallel batch: {len(image_paths)} images with {max_workers} workers")
+        
+        def _process_single(path: str) -> dict:
+            # Create a temporary pipeline for thread safety
+            from latent_gate.fast_client import FastClient
+            client = FastClient(self.config)
+            local_processor = LocalProcessor(self.config, client=client)
+            remote_decoder = create_decoder(self.config, client=client)
+            
+            try:
+                start = time.time()
+                payload = local_processor.process(path)
+                compact_input = payload.to_compact_prompt()
+                local_ms = (time.time() - start) * 1000
+                
+                remote_start = time.time()
+                answer = remote_decoder.decode(compact_input, question)
+                remote_ms = (time.time() - remote_start) * 1000
+                
+                return {
+                    "answer": answer,
+                    "compact_prompt": compact_input,
+                    "tokens_estimated": payload.estimated_token_count,
+                    "was_cached": False,
+                    "payload": payload.to_dict(),
+                    "input_type": "image",
+                    "timing": {
+                        "local_ms": round(local_ms, 1),
+                        "remote_ms": round(remote_ms, 1),
+                        "total_ms": round(local_ms + remote_ms, 1),
+                    },
+                }
+            finally:
+                client.close()
+        
+        # Use ThreadPoolExecutor for parallel processing
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_process_single, path): path for path in image_paths}
+            results = []
+            
+            for future in as_completed(futures):
+                path = futures[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as e:
+                    logger.error(f"Failed to process {path}: {e}")
+                    results.append({
+                        "answer": f"Error: {str(e)}",
+                        "compact_prompt": "",
+                        "tokens_estimated": 0,
+                        "was_cached": False,
+                        "payload": {},
+                        "input_type": "image",
+                        "timing": {"local_ms": 0, "remote_ms": 0, "total_ms": 0},
+                        "error": str(e),
+                    })
+        
+        # Sort results by original order
+        path_to_index = {path: i for i, path in enumerate(image_paths)}
+        results.sort(key=lambda r: path_to_index.get(r.get("payload", {}).get("source_image", ""), 0))
+        
+        logger.info(f"Parallel batch complete: {len(results)} images processed")
         return results
+    
+    def query_batch_texts(self, texts: list, question: str = "", parallel: bool = True, max_workers: int = 3) -> list:
+        """
+        Process multiple texts in parallel.
+        
+        Args:
+            texts: List of text strings.
+            question: Question to ask about each text.
+            parallel: If True, process in parallel.
+            max_workers: Maximum parallel workers.
+            
+        Returns:
+            List of result dictionaries.
+        """
+        if not parallel:
+            results = []
+            for i, text in enumerate(texts):
+                logger.info(f"Text {i + 1}/{len(texts)}")
+                results.append(self.query_text(text, question))
+            return results
+        
+        logger.info(f"Parallel text batch: {len(texts)} texts with {max_workers} workers")
+        
+        def _process_single(text: str) -> dict:
+            return self.query_text(text, question)
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_process_single, text): i for i, text in enumerate(texts)}
+            results = [None] * len(texts)
+            
+            for future in as_completed(futures):
+                index = futures[future]
+                try:
+                    results[index] = future.result()
+                except Exception as e:
+                    logger.error(f"Failed to process text {index}: {e}")
+                    results[index] = {
+                        "answer": f"Error: {str(e)}",
+                        "compact_prompt": "",
+                        "tokens_estimated": 0,
+                        "was_cached": False,
+                        "payload": {},
+                        "input_type": "text",
+                        "timing": {"local_ms": 0, "remote_ms": 0, "total_ms": 0},
+                        "error": str(e),
+                    }
+        
+        logger.info(f"Parallel text batch complete: {len(results)} texts processed")
+        return results
+
+    # ================================================================
+    # Streaming Methods
+    # ================================================================
+
+    def query_stream(self, image_path: str, question: str):
+        """
+        Process an image and stream the response.
+        
+        Args:
+            image_path: Path to the image file.
+            question: Question about the image.
+            
+        Yields:
+            Response tokens as they arrive.
+        """
+        logger.info("Streaming image query")
+        
+        # Local processing
+        payload = self.local_processor.process(image_path)
+        compact_input = payload.to_compact_prompt()
+        
+        # Stream remote decoding
+        yield from self.remote_decoder.decode_stream(compact_input, question)
+    
+    def query_text_stream(self, text: str, question: str = "", mode: str = "auto"):
+        """
+        Compress text and stream the response.
+        
+        Args:
+            text: Text to compress and query.
+            question: Specific question about the text.
+            mode: Compression mode.
+            
+        Yields:
+            Response tokens as they arrive.
+        """
+        logger.info("Streaming text query")
+        
+        # Local processing
+        text_payload = self.text_processor.compress(text, mode=mode, question=question)
+        compact_input = text_payload.to_compact_prompt()
+        
+        final_q = question or text_payload.intent or "Process and respond."
+        
+        # Stream remote decoding
+        yield from self.remote_decoder.decode_stream(compact_input, final_q)
+    
+    def query_universal_stream(self, text: str = "", image: str = "", question: str = ""):
+        """
+        Universal query with streaming response.
+        
+        Args:
+            text: Text input.
+            image: Image path.
+            question: Question.
+            
+        Yields:
+            Response tokens as they arrive.
+        """
+        has_image = bool(image)
+        has_text = bool(text)
+        
+        if has_image and has_text:
+            # Process both locally
+            image_payload = self.local_processor.process(image)
+            text_payload = self.text_processor.compress(text)
+            
+            image_compact = image_payload.to_compact_prompt()
+            text_compact = text_payload.to_compact_prompt()
+            combined = f"[VISUAL]: {image_compact} | [TEXT]: {text_compact}"
+            
+            final_q = question or text_payload.intent or "Analyze the image and text together."
+            
+            # Stream remote decoding
+            yield from self.remote_decoder.decode_stream(combined, final_q)
+            
+        elif has_image:
+            yield from self.query_stream(image, question or "Describe this image.")
+        elif has_text:
+            yield from self.query_text_stream(text, question)
+        else:
+            raise ValueError("Provide at least 'text' or 'image' input.")
 
     def reset_selective_decoder(self):
         self.selective_decoder.reset()

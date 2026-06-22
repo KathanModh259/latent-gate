@@ -196,7 +196,7 @@ Format: SCENE:<type>|DESC:<1 line>|OBJECTS:<list>|ACTIONS:<list>|TEXT:<text>"""
         text = text.strip()
         if text.startswith("```"):
             lines = text.split("\n")
-            lines = [l for l in lines if not l.strip().startswith("```")]
+            lines = [line for line in lines if not line.strip().startswith("```")]
             text = "\n".join(lines)
         return text.strip()
 

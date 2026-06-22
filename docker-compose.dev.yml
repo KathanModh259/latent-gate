@@ -1,0 +1,63 @@
+version: '3.8'
+
+# Development docker-compose with hot reload
+
+services:
+  # LatentGate API Server (Development)
+  latent-gate-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    container_name: latent-gate-dev
+    ports:
+      - "8000:8000"
+    environment:
+      - LATENTGATE_HOST=0.0.0.0
+      - LATENTGATE_PORT=8000
+      - LATENTGATE_LOG_LEVEL=DEBUG
+      - LATENTGATE_LOG_JSON=false
+      - LATENTGATE_REMOTE_PROVIDER=ollama
+      - LATENTGATE_REMOTE_MODEL=llama3:8b
+    volumes:
+      - .:/app
+      - latentgate-cache:/home/appuser/.latentgate_cache
+    depends_on:
+      ollama:
+        condition: service_healthy
+    command: >
+      sh -c "
+        pip install -e . &&
+        uvicorn latent_gate.api_server:app --host 0.0.0.0 --port 8000 --reload
+      "
+    restart: unless-stopped
+    networks:
+      - latentgate-network
+
+  # Ollama Local LLM Server
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - latentgate-network
+
+volumes:
+  ollama-data:
+    driver: local
+  latentgate-cache:
+    driver: local
+
+networks:
+  latentgate-network:
+    driver: bridge

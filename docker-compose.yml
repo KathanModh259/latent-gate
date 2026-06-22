@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # LatentGate API Server
+  latent-gate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: latent-gate-api
+    ports:
+      - "${LATENTGATE_PORT:-8000}:8000"
+    environment:
+      - LATENTGATE_HOST=0.0.0.0
+      - LATENTGATE_PORT=8000
+      - LATENTGATE_LOG_LEVEL=${LATENTGATE_LOG_LEVEL:-INFO}
+      - LATENTGATE_LOG_JSON=${LATENTGATE_LOG_JSON:-false}
+      - LATENTGATE_REMOTE_PROVIDER=${LATENTGATE_REMOTE_PROVIDER:-ollama}
+      - LATENTGATE_REMOTE_MODEL=${LATENTGATE_REMOTE_MODEL:-llama3:8b}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+    volumes:
+      - latentgate-cache:/home/appuser/.latentgate_cache
+      - latentgate-logs:/home/appuser/logs
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - latentgate-network
+
+  # Ollama Local LLM Server
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - latentgate-network
+
+  # Optional: Model initializer (pulls required models)
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ollama-data:/root/.ollama
+    entrypoint: >
+      sh -c "
+        echo 'Pulling llava:7b...'
+        ollama pull llava:7b
+        echo 'Pulling llama3:8b...'
+        ollama pull llama3:8b
+        echo 'Models pulled successfully!'
+      "
+    networks:
+      - latentgate-network
+
+volumes:
+  ollama-data:
+    driver: local
+  latentgate-cache:
+    driver: local
+  latentgate-logs:
+    driver: local
+
+networks:
+  latentgate-network:
+    driver: bridge

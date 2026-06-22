@@ -12,6 +12,7 @@ build/
 .venv/
 venv/
 ENV/
+env/
 
 # IDE
 .vscode/
@@ -31,8 +32,46 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+.env.production
 
 # Test artifacts
 .pytest_cache/
 htmlcov/
 .coverage
+.coverage.*
+.ruff_cache/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# VS Code extension
+*.vsix
+vscode-extension/out/
+vscode-extension/node_modules/
+
+# TypeScript
+*.tsbuildinfo
+
+# Coverage reports
+coverage/
+*.lcov
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Build artifacts
+artifacts/
+*.whl
+*.tar.gz
+
+# Secrets (never commit)
+*.pem
+*.key
+credentials.json
+secrets.json

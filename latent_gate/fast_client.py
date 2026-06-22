@@ -10,7 +10,6 @@ Key optimizations:
 """
 
 import logging
-from typing import Optional
 
 import requests
 from requests.adapters import HTTPAdapter

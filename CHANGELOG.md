@@ -5,6 +5,30 @@ All notable changes to LatentGate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-06-22
+
+### Added
+
+- **VSCode Extension** — Full-featured extension with commands, webview panels, and MCP auto-configuration
+- **True Embedding Similarity** — Replaced Jaccard similarity with cosine similarity using sentence-transformers for more accurate scene change detection
+- **FastAPI Server Wrapper** — REST API server for web application integration
+- **Direct Video File Input** — Auto frame extraction from video files with configurable FPS
+- **Cost Tracking Dashboard** — Persistent cost tracking with SQLite analytics and exportable reports
+- **Async Support** — Async versions of core pipeline methods for non-blocking operations
+- **Batch Processing Optimization** — Parallelized batch image processing
+- **Streaming Responses** — Support for streaming from remote LLMs
+- **Configuration Persistence** — YAML/TOML config files with environment variable overrides
+- **Structured Logging** — JSON-formatted logging with log rotation
+- **Docker Support** — Dockerfile and docker-compose for easy deployment
+- **Plugin System** — Custom processor plugins for domain-specific compression
+- **Multi-language Support** — Non-English text compression support
+
+### Changed
+
+- Upgraded selective decoding to use cosine similarity when sentence-transformers is available
+- Added `use_embeddings` config option for selective decoding
+- Updated README with new features and expanded architecture documentation
+
 ## [0.4.0] - 2026-06-17
 
 ### Added
@@ -70,6 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Content-hash caching
 - CLI plus Python API
 
+[0.5.0]: https://github.com/KathanModh259/latent-gate/releases/tag/v0.5.0
 [0.4.0]: https://github.com/KathanModh259/latent-gate/releases/tag/v0.4.0
 [0.3.0]: https://github.com/KathanModh259/latent-gate/releases/tag/v0.3.0
 [0.2.0]: https://github.com/KathanModh259/latent-gate/releases/tag/v0.2.0

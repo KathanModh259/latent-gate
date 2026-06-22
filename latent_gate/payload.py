@@ -10,7 +10,6 @@ we send this ~150-200 token structured payload.
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import Optional
 
 
 @dataclass

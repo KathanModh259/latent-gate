@@ -1,14 +1,23 @@
 """
-LatentGate v0.4.0 — Process Locally. Send Smart. Pay Less.
+LatentGate v0.5.0 — Process Locally. Send Smart. Pay Less.
 ============================================================
 VL-JEPA inspired pipeline that compresses images, text, conversations,
 and RAG documents locally via Ollama, then sends compact payloads to
 any LLM API.
 
-New in v0.4.0:
-  - MCP Server (Claude Desktop, Cursor, Cline, Continue, Zed)
-  - Claude Code Skill
-  - OpenAI/Anthropic function schemas
+New in v0.5.0:
+  - True embedding similarity (cosine similarity via sentence-transformers)
+  - FastAPI server wrapper for web applications
+  - Direct video file input with automatic frame extraction
+  - Cost tracking dashboard with analytics
+  - Async support for non-blocking operations
+  - Batch processing optimization
+  - Streaming responses
+  - Configuration persistence (YAML/TOML)
+  - Structured logging
+  - Docker support
+  - Plugin system for custom processors
+  - Multi-language support
 
 Usage:
     from latent_gate import LatentGatePipeline, PipelineConfig
@@ -34,6 +43,13 @@ Usage:
 
         # Universal (auto-detect)
         result = pipeline.query_universal(text="...", image="photo.jpg")
+        
+    # Video processing
+    from latent_gate import VideoProcessor, VideoConfig
+    
+    video_config = VideoConfig(fps=1.0, max_frames=50)
+    with VideoProcessor(config, video_config) as processor:
+        result = processor.process_video("video.mp4", "Describe the action")
 """
 
 from latent_gate.config import PipelineConfig
@@ -50,8 +66,28 @@ from latent_gate.remote_decoder import (
 )
 from latent_gate.cache import PayloadCache
 from latent_gate.pipeline import LatentGatePipeline
+from latent_gate.video_processor import VideoProcessor, VideoConfig
+from latent_gate.cost_tracker import CostTracker
+from latent_gate.async_pipeline import AsyncLatentGatePipeline
+from latent_gate.config_loader import load_config, save_config, get_config
+from latent_gate.logging_config import setup_logging, setup_from_env
+from latent_gate.plugin_system import (
+    ProcessorPlugin,
+    PreProcessorPlugin,
+    PostProcessorPlugin,
+    SimilarityPlugin,
+    PluginManager,
+    get_plugin_manager,
+)
+from latent_gate.multilang import (
+    detect_language,
+    detect_text_language,
+    is_english,
+    get_supported_languages,
+    MultiLanguageProcessor,
+)
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 __author__ = "Kathan Modh"
 __license__ = "MIT"
 __url__ = "https://github.com/KathanModh259/latent-gate"
@@ -70,4 +106,24 @@ __all__ = [
     "AnthropicDecoder",
     "OllamaRemoteDecoder",
     "PayloadCache",
+    "VideoProcessor",
+    "VideoConfig",
+    "CostTracker",
+    "AsyncLatentGatePipeline",
+    "load_config",
+    "save_config",
+    "get_config",
+    "setup_logging",
+    "setup_from_env",
+    "ProcessorPlugin",
+    "PreProcessorPlugin",
+    "PostProcessorPlugin",
+    "SimilarityPlugin",
+    "PluginManager",
+    "get_plugin_manager",
+    "detect_language",
+    "detect_text_language",
+    "is_english",
+    "get_supported_languages",
+    "MultiLanguageProcessor",
 ]

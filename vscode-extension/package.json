@@ -1,0 +1,258 @@
+{
+  "name": "latent-gate",
+  "displayName": "LatentGate — Local-First AI Compression",
+  "description": "Compress images, text, conversations, and documents locally via Ollama before sending to cloud LLMs. Save ~80% on token costs.",
+  "version": "0.5.0",
+  "publisher": "KathanModh",
+  "license": "MIT",
+  "icon": "media/icon.svg",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Other",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "llm",
+    "ollama",
+    "token-optimization",
+    "vision-language",
+    "mcp",
+    "copilot",
+    "ai",
+    "compression"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "LatentGate",
+      "properties": {
+        "latentGate.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to Python executable (leave empty for auto-detect)"
+        },
+        "latentGate.ollamaBaseUrl": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Ollama server base URL"
+        },
+        "latentGate.visionModel": {
+          "type": "string",
+          "default": "llava:7b",
+          "description": "Vision model for image compression (must be multimodal)"
+        },
+        "latentGate.predictorModel": {
+          "type": "string",
+          "default": "llama3:8b",
+          "description": "Text model for prediction/structuring"
+        },
+        "latentGate.remoteProvider": {
+          "type": "string",
+          "default": "openai",
+          "enum": [
+            "openai",
+            "anthropic",
+            "google",
+            "ollama",
+            "custom"
+          ],
+          "description": "Remote LLM provider"
+        },
+        "latentGate.remoteModel": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "description": "Remote model name"
+        },
+        "latentGate.remoteApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for remote provider (or set via environment variable)"
+        },
+        "latentGate.selectiveDecoding": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable selective decoding for video (skip API calls when scene unchanged)"
+        },
+        "latentGate.similarityThreshold": {
+          "type": "number",
+          "default": 0.85,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Similarity threshold for selective decoding (0-1)"
+        },
+        "latentGate.useEmbeddings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use cosine similarity with sentence-transformers (more accurate)"
+        },
+        "latentGate.enableCaching": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable disk caching for repeated images"
+        },
+        "latentGate.logLevel": {
+          "type": "string",
+          "default": "INFO",
+          "enum": [
+            "DEBUG",
+            "INFO",
+            "WARNING",
+            "ERROR"
+          ],
+          "description": "Log level for LatentGate"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "latentGate.compressImage",
+        "title": "LatentGate: Compress Image",
+        "icon": "$(file-binary)"
+      },
+      {
+        "command": "latentGate.compressSelection",
+        "title": "LatentGate: Compress Selected Text",
+        "icon": "$(compress)"
+      },
+      {
+        "command": "latentGate.compressDocument",
+        "title": "LatentGate: Compress Current Document",
+        "icon": "$(file-text)"
+      },
+      {
+        "command": "latentGate.showDashboard",
+        "title": "LatentGate: Show Cost Dashboard",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "latentGate.showStats",
+        "title": "LatentGate: Show Session Stats",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "latentGate.openSettings",
+        "title": "LatentGate: Open Settings",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "latentGate.checkHealth",
+        "title": "LatentGate: Check Ollama Health",
+        "icon": "$(heart)"
+      },
+      {
+        "command": "latentGate.setupMcp",
+        "title": "LatentGate: Configure MCP Server",
+        "icon": "$(plug)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "latentGate.compressSelection",
+          "when": "editorHasSelection",
+          "group": "latentGate@1"
+        },
+        {
+          "command": "latentGate.compressImage",
+          "when": "resourceExtname =~ /\\.(jpg|jpeg|png|gif|bmp|webp)/",
+          "group": "latentGate@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "latentGate.compressImage",
+          "when": "resourceExtname =~ /\\.(jpg|jpeg|png|gif|bmp|webp)/",
+          "group": "latentGate@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "latentGate.compressImage",
+          "when": "true"
+        },
+        {
+          "command": "latentGate.compressSelection",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "latentGate.compressDocument",
+          "when": "true"
+        },
+        {
+          "command": "latentGate.showDashboard",
+          "when": "true"
+        },
+        {
+          "command": "latentGate.showStats",
+          "when": "true"
+        },
+        {
+          "command": "latentGate.openSettings",
+          "when": "true"
+        },
+        {
+          "command": "latentGate.checkHealth",
+          "when": "true"
+        },
+        {
+          "command": "latentGate.setupMcp",
+          "when": "true"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "latentGate",
+          "title": "LatentGate",
+          "icon": "$(symbol-misc)"
+        }
+      ]
+    },
+    "views": {
+      "latentGate": [
+        {
+          "id": "latentGate.dashboard",
+          "name": "Dashboard",
+          "type": "webview"
+        },
+        {
+          "id": "latentGate.tools",
+          "name": "Tools",
+          "type": "webview"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "latentGate.compressSelection",
+        "key": "ctrl+shift+alt+c",
+        "mac": "cmd+shift+alt+c",
+        "when": "editorHasSelection"
+      },
+      {
+        "command": "latentGate.showDashboard",
+        "key": "ctrl+shift+alt+d",
+        "mac": "cmd+shift+alt+d"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.22.0",
+    "typescript": "^5.3.0"
+  }
+}

@@ -1,0 +1,20 @@
+include LICENSE
+include README.md
+include CHANGELOG.md
+include CONTRIBUTING.md
+include requirements.txt
+include requirements-dev.txt
+
+recursive-include latent_gate *.py
+recursive-include docs *.md *.png
+recursive-include examples *.py
+recursive-include integrations *.md *.json *.cursorrules
+
+global-exclude __pycache__
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude .pytest_cache
+global-exclude .git
+global-exclude .github
+global-exclude .venv
+global-exclude *.egg-info

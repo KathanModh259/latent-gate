@@ -35,6 +35,7 @@ class PipelineConfig:
     # ---- Selective Decoding ----
     selective_decoding: bool = True       # Only call remote if semantics changed
     similarity_threshold: float = 0.85    # How similar = "unchanged" (0.0 to 1.0)
+    use_embeddings: bool = True           # Use cosine similarity (requires sentence-transformers)
 
     # ---- Ollama Generation Options ----
     temperature: float = 0.1              # Low temp for factual extraction
