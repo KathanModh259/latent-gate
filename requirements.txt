@@ -1,12 +1,17 @@
-# LatentGate v0.4.0 — Dependencies
+# LatentGate v0.5.3 — Dependencies
 # ================================
 
 # Core (required)
 requests>=2.31.0
 
+# Optional: API server (FastAPI + Uvicorn)
+# Install with: pip install latent-gate[api]
+# fastapi>=0.100.0
+# uvicorn>=0.23.0
+# python-multipart>=0.0.6
+
 # Optional: MCP server (Claude Desktop, Cursor, Cline, Continue, Zed)
 # Install with: pip install latent-gate[mcp]
-# Or directly: pip install mcp>=0.9.0
 # mcp>=0.9.0
 
 # Optional: Video frame extraction
@@ -17,6 +22,16 @@ requests>=2.31.0
 # Install with: pip install latent-gate[embeddings]
 # torch>=2.0.0
 # sentence-transformers>=2.7.0
+
+# Optional: Multi-language detection
+# Install with: pip install latent-gate[multilang]
+# langdetect>=1.0.9
+
+# Optional: Config file support (YAML/TOML)
+# Install with: pip install latent-gate[config]
+# pyyaml>=6.0
+# tomli>=2.0.0; python_version < '3.11'
+# tomli_w>=1.0.0
 
 # Development (install with: pip install -r requirements-dev.txt)
 # pytest>=7.0

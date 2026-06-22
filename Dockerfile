@@ -11,9 +11,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+# Copy project files
+COPY pyproject.toml README.md LICENSE ./
+COPY latent_gate/ ./latent_gate/
+
+# Install the package with API dependencies
+RUN pip install --no-cache-dir --user ".[api]"
 
 # Stage 2: Runtime stage
 FROM python:3.11-slim
@@ -23,20 +26,12 @@ WORKDIR /app
 # Copy installed packages from builder
 COPY --from=builder /root/.local /root/.local
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
-
 # Copy application code
 COPY latent_gate/ ./latent_gate/
-COPY pyproject.toml .
-COPY README.md .
-COPY LICENSE .
+COPY pyproject.toml README.md LICENSE ./
 
-# Install the package
-RUN pip install --no-cache-dir --user -e .
+# Install the package with API dependencies
+RUN pip install --no-cache-dir --user ".[api]"
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash appuser

@@ -1,11 +1,11 @@
 """
-LatentGate v0.5.0 — Process Locally. Send Smart. Pay Less.
+LatentGate v0.5.3 — Process Locally. Send Smart. Pay Less.
 ============================================================
 VL-JEPA inspired pipeline that compresses images, text, conversations,
 and RAG documents locally via Ollama, then sends compact payloads to
 any LLM API.
 
-New in v0.5.0:
+New in v0.5.3:
   - True embedding similarity (cosine similarity via sentence-transformers)
   - FastAPI server wrapper for web applications
   - Direct video file input with automatic frame extraction

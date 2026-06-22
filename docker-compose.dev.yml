@@ -8,7 +8,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: builder
     container_name: latent-gate-dev
     ports:
       - "8000:8000"
@@ -27,7 +26,7 @@ services:
         condition: service_healthy
     command: >
       sh -c "
-        pip install -e . &&
+        pip install -e '.[api]' &&
         uvicorn latent_gate.api_server:app --host 0.0.0.0 --port 8000 --reload
       "
     restart: unless-stopped

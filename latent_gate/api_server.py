@@ -10,6 +10,13 @@ Features:
   - Health checks and metrics
   - CORS support for web applications
   - Async request handling
+
+Run via:
+    latent-gate-api
+    python -m latent_gate.api_server
+
+Requires:
+    pip install latent-gate[api]
 """
 
 import logging
@@ -17,9 +24,16 @@ import time
 from typing import Optional, List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+try:
+    from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+    from fastapi.middleware.cors import CORSMiddleware
+    from pydantic import BaseModel, Field
+except ImportError as e:
+    raise ImportError(
+        "FastAPI dependencies not installed.\n"
+        "Install with: pip install latent-gate[api]\n"
+        "Or directly:  pip install fastapi uvicorn python-multipart"
+    ) from e
 
 from latent_gate.config import PipelineConfig
 from latent_gate.pipeline import LatentGatePipeline

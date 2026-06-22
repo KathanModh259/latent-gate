@@ -197,7 +197,7 @@ def example_multi_language():
 
 def main():
     """Run all examples."""
-    print("LatentGate v0.5.0 - Advanced Features Showcase")
+    print("LatentGate v0.5.3 - Advanced Features Showcase")
     print("=" * 50)
     
     # Note: These examples require Ollama running with models

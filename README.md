@@ -104,7 +104,7 @@ python -m latent_gate photo.jpg "Analyze" --text "Extra context..." -v
 # Full JSON output
 python -m latent_gate photo.jpg "Describe" --json -v
 
-# Start API server
+# Start API server (requires: pip install latent-gate[api])
 latent-gate-api
 ```
 
@@ -190,7 +190,14 @@ for token in pipeline.query_text_stream("Long prompt...", mode="compress"):
 latent-gate-api
 
 # Custom host/port
+# Linux/macOS:
 LATENTGATE_HOST=127.0.0.1 LATENTGATE_PORT=9000 latent-gate-api
+
+# Windows PowerShell:
+$env:LATENTGATE_HOST="127.0.0.1"; $env:LATENTGATE_PORT="9000"; latent-gate-api
+
+# Windows CMD:
+set LATENTGATE_HOST=127.0.0.1 && set LATENTGATE_PORT=9000 && latent-gate-api
 ```
 
 ### Endpoints
@@ -383,6 +390,7 @@ pip install latent-gate[mcp]
 ollama pull llava:7b
 ollama pull llama3:8b
 ```
+Still there are problems in the pypi i mean pip one latent gate so there would be no requirement when this works only on local I want to make it production ready which is only possible when you go through each and everything and get me done
 
 Add to your tool's MCP config:
 

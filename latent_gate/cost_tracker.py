@@ -251,17 +251,21 @@ class CostTracker:
         if not rows:
             return self._empty_statistics()
         
+        # Column indices: 0=id, 1=timestamp, 2=session_id, 3=query_type,
+        # 4=provider, 5=model, 6=input_tokens, 7=output_tokens, 8=estimated_cost,
+        # 9=tokens_saved, 10=compression_ratio, 11=latency_ms, 12=was_cached
+
         # Calculate statistics
-        total_input_tokens = sum(r[5] for r in rows)
-        total_output_tokens = sum(r[6] for r in rows)
-        total_cost = sum(r[7] for r in rows)
-        total_saved = sum(r[8] for r in rows)
-        total_latency = sum(r[10] for r in rows)
+        total_input_tokens = sum(r[6] for r in rows)
+        total_output_tokens = sum(r[7] for r in rows)
+        total_cost = sum(r[8] for r in rows)
+        total_saved = sum(r[9] for r in rows)
+        total_latency = sum(r[11] for r in rows)
         
         # Group by provider
         by_provider = {}
         for row in rows:
-            provider = row[3]
+            provider = row[4]
             if provider not in by_provider:
                 by_provider[provider] = {
                     "queries": 0,
@@ -271,20 +275,20 @@ class CostTracker:
                     "tokens_saved": 0,
                 }
             by_provider[provider]["queries"] += 1
-            by_provider[provider]["input_tokens"] += row[5]
-            by_provider[provider]["output_tokens"] += row[6]
-            by_provider[provider]["cost"] += row[7]
-            by_provider[provider]["tokens_saved"] += row[8]
+            by_provider[provider]["input_tokens"] += row[6]
+            by_provider[provider]["output_tokens"] += row[7]
+            by_provider[provider]["cost"] += row[8]
+            by_provider[provider]["tokens_saved"] += row[9]
         
         # Group by query type
         by_type = {}
         for row in rows:
-            query_type = row[2]
+            query_type = row[3]
             if query_type not in by_type:
                 by_type[query_type] = {"queries": 0, "cost": 0.0, "tokens_saved": 0}
             by_type[query_type]["queries"] += 1
-            by_type[query_type]["cost"] += row[7]
-            by_type[query_type]["tokens_saved"] += row[8]
+            by_type[query_type]["cost"] += row[8]
+            by_type[query_type]["tokens_saved"] += row[9]
         
         return {
             "total_queries": len(rows),
@@ -294,13 +298,13 @@ class CostTracker:
             "total_tokens_saved": total_saved,
             "average_latency_ms": round(total_latency / len(rows), 2),
             "average_compression_ratio": round(
-                sum(r[9] for r in rows) / len(rows), 2
+                sum(r[10] for r in rows) / len(rows), 2
             ),
             "by_provider": by_provider,
             "by_type": by_type,
             "time_range": {
-                "start": rows[0][0],
-                "end": rows[-1][0],
+                "start": rows[0][1],
+                "end": rows[-1][1],
             },
         }
     

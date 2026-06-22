@@ -4,11 +4,12 @@ include CHANGELOG.md
 include CONTRIBUTING.md
 include requirements.txt
 include requirements-dev.txt
+include pyproject.toml
 
 recursive-include latent_gate *.py
 recursive-include docs *.md *.png
 recursive-include examples *.py
-recursive-include integrations *.md *.json *.cursorrules
+recursive-include integrations *.md *.json *.cursorrules *.txt
 
 global-exclude __pycache__
 global-exclude *.pyc
