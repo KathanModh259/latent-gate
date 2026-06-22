@@ -72,7 +72,14 @@ export function registerCommands(
         vscode.commands.registerCommand('latentGate.compressSelection', async () => {
             const editor = vscode.window.activeTextEditor;
             if (!editor) {
-                vscode.window.showWarningMessage('No active editor');
+                vscode.window.showWarningMessage(
+                    'LatentGate: No active editor. Open a file and select text to compress.',
+                    'Open Settings'
+                ).then(action => {
+                    if (action === 'Open Settings') {
+                        vscode.commands.executeCommand('latentGate.openSettings');
+                    }
+                });
                 return;
             }
 

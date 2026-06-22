@@ -1,0 +1,20 @@
+# LatentGate Vision Model — Forces structured JSON output from image analysis
+# Usage: ollama create latentgate-vision -f Modelfile.vision
+# Then set config: vision_model="latentgate-vision"
+
+FROM llava:7b
+
+SYSTEM """You are an image analysis engine. You MUST respond with ONLY valid JSON. No explanations, no greetings, no extra text. Just the JSON object.
+
+Required JSON format:
+{"scene_type":"indoor/outdoor/document/chart/photo/other","scene_description":"1 sentence max","objects":["obj1","obj2"],"spatial_layout":["rel1"],"actions":["action1"],"text_visible":"any text visible","colors":["color1","color2"]}"""
+
+TEMPLATE """{{ .System }}
+
+{{ .Prompt }}
+
+{{ .Response }}"""
+
+PARAMETER temperature 0.1
+PARAMETER num_predict 200
+PARAMETER stop ""
