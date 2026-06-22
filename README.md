@@ -373,7 +373,7 @@ LatentGate works as a Model Context Protocol (MCP) server with every major AI co
 ### VS Code Extension
 
 ```bash
-code --install-extension KathanModh.latent-gate
+code --install-extension KathanModh259.latent-gate-vscode
 ```
 
 Features:
@@ -390,8 +390,6 @@ pip install latent-gate[mcp]
 ollama pull llava:7b
 ollama pull llama3:8b
 ```
-Still there are problems in the pypi i mean pip one latent gate so there would be no requirement when this works only on local I want to make it production ready which is only possible when you go through each and everything and get me done
-
 Add to your tool's MCP config:
 
 ```json

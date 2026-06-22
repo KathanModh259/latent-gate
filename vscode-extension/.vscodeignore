@@ -7,4 +7,3 @@ tsconfig.json
 **/*.ts
 .gitignore
 README.md
-LICENSE
