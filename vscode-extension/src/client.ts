@@ -203,7 +203,8 @@ with LatentGatePipeline(config) as pipeline:
                     const lines = stdout.trim().split('\n');
                     const jsonLine = lines.find(l => l.trim().startsWith('{'));
                     if (jsonLine) {
-                        resolve(JSON.parse(jsonLine));
+                        const raw = JSON.parse(jsonLine);
+                        resolve(this.toCamelCase(raw));
                     } else {
                         reject(new Error(`No JSON in output: ${stdout}`));
                     }
@@ -222,6 +223,21 @@ with LatentGatePipeline(config) as pipeline:
         this.stats.totalFrames++;
         this.stats.apiCalls++;
         this._onDidChangeStats.fire(this.stats);
+    }
+
+    private toCamelCase(obj: any): any {
+        if (Array.isArray(obj)) {
+            return obj.map(item => this.toCamelCase(item));
+        }
+        if (obj !== null && typeof obj === 'object' && !(obj instanceof Date)) {
+            return Object.fromEntries(
+                Object.entries(obj).map(([key, value]) => [
+                    key.replace(/_([a-z])/g, (_, c) => c.toUpperCase()),
+                    this.toCamelCase(value),
+                ])
+            );
+        }
+        return obj;
     }
 
     dispose() {

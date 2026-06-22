@@ -1,11 +1,15 @@
 {
-  "name": "latent-gate",
+  "name": "latent-gate-vscode",
   "displayName": "LatentGate — Local-First AI Compression",
   "description": "Compress images, text, conversations, and documents locally via Ollama before sending to cloud LLMs. Save ~80% on token costs.",
-  "version": "0.5.1",
-  "publisher": "KathanModh",
+  "version": "0.5.2",
+  "publisher": "KathanModh259",
   "license": "MIT",
-  "icon": "media/icon.svg",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KathanModh259/latent-gate"
+  },
+  "icon": "media/icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
