@@ -1,11 +1,11 @@
 """
-LatentGate v0.5.3 — Process Locally. Send Smart. Pay Less.
+LatentGate v1.0.0 — Process Locally. Send Smart. Pay Less.
 ============================================================
 VL-JEPA inspired pipeline that compresses images, text, conversations,
 and RAG documents locally via Ollama, then sends compact payloads to
 any LLM API.
 
-New in v0.5.3:
+New in v1.0.0:
   - True embedding similarity (cosine similarity via sentence-transformers)
   - FastAPI server wrapper for web applications
   - Direct video file input with automatic frame extraction
@@ -87,7 +87,7 @@ from latent_gate.multilang import (
     MultiLanguageProcessor,
 )
 
-__version__ = "0.5.3"
+__version__ = "1.0.0"
 __author__ = "Kathan Modh"
 __license__ = "MIT"
 __url__ = "https://github.com/KathanModh259/latent-gate"

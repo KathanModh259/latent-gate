@@ -149,7 +149,7 @@ def create_app(config: Optional[PipelineConfig] = None) -> FastAPI:
     app = FastAPI(
         title="LatentGate API",
         description="Local-first vision-language pipeline API. Compress images, text, and documents locally before sending to cloud LLMs.",
-        version="0.5.3",
+        version="1.0.0",
         lifespan=lifespan,
     )
     
@@ -197,7 +197,7 @@ async def health_check():
     
     return HealthResponse(
         status="healthy",
-        version="0.5.3",
+        version="1.0.0",
         ollama_connected=ollama_connected,
         models_loaded=models_loaded,
     )

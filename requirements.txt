@@ -1,4 +1,4 @@
-# LatentGate v0.5.3 — Dependencies
+# LatentGate v1.0.0 — Dependencies
 # ================================
 
 # Core (required)

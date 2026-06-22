@@ -5,6 +5,32 @@ All notable changes to LatentGate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-06-22
+
+### Fixed
+
+- **`query_universal` parallel text compression** — Fixed missing `question` parameter in parallel text processing path
+- **Parallel batch result ordering** — Fixed sorting bug where error results would cluster at index 0
+- **`query_image_upload` missing null check** — Added pipeline null check to prevent `UnboundLocalError`
+- **`api_server.py` missing fastapi import guard** — Graceful error message when fastapi not installed
+- **`api_server.py` dead code removal** — Removed unused `PipelineConfig` instantiation
+- **`cost_tracker.py` SQLite column indices** — Fixed all 15+ off-by-one indices that caused `TypeError` on `get_statistics()`
+- **`logging_config.py` variable shadowing** — Fixed local `logger` shadowing module-level `logger`
+- **`cost_tracker.py` and `config_loader.py` parameter shadowing** — Renamed `format` to `fmt` to avoid built-in shadowing
+- **`Dockerfile` missing API dependencies** — Changed to install `[api]` extras so API server works in Docker
+- **`docker-compose.dev.yml` broken build target** — Fixed to use full build with API dependencies
+- **CI workflow missing optional dependencies** — Changed to install `[all]` extras for proper testing
+- **`MANIFEST.in` missing `pyproject.toml`** — Added for correct wheel builds
+- **README navigation links** — Fixed broken anchor links with extra `-` prefix
+- **README VS Code extension ID** — Fixed publisher name mismatch
+- **README Video Processing example** — Added missing `PipelineConfig` setup
+
+### Changed
+
+- Bumped all version references from 0.5.x to 1.0.0
+- Updated README with PowerShell/CMD env var syntax
+- Updated README with production-ready documentation
+
 ## [0.5.3] - 2026-06-22
 
 ### Fixed
@@ -105,6 +131,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Content-hash caching
 - CLI plus Python API
 
+[1.0.0]: https://github.com/KathanModh259/latent-gate/releases/tag/v1.0.0
 [0.5.3]: https://github.com/KathanModh259/latent-gate/releases/tag/v0.5.3
 [0.5.0]: https://github.com/KathanModh259/latent-gate/releases/tag/v0.5.0
 [0.4.0]: https://github.com/KathanModh259/latent-gate/releases/tag/v0.4.0
