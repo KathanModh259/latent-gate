@@ -87,7 +87,7 @@ from latent_gate.multilang import (
     MultiLanguageProcessor,
 )
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 __author__ = "Kathan Modh"
 __license__ = "MIT"
 __url__ = "https://github.com/KathanModh259/latent-gate"

@@ -2,7 +2,7 @@
   "name": "latent-gate",
   "displayName": "LatentGate — Local-First AI Compression",
   "description": "Compress images, text, conversations, and documents locally via Ollama before sending to cloud LLMs. Save ~80% on token costs.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "publisher": "KathanModh",
   "license": "MIT",
   "icon": "media/icon.svg",
