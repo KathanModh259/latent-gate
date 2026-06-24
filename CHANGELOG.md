@@ -5,6 +5,23 @@ All notable changes to LatentGate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-06-24
+
+### Changed
+
+- **VS Code extension redesign** — Dashboard now has inline text input with Ctrl+Enter to compress, live loading states, and proper status display
+- **VS Code tools tab** — Cleaner layout with shortcut rows, tool descriptions with savings percentages
+- **CLI speed** — `--compress-only` bypasses full pipeline, uses TextProcessor directly (~3x faster)
+- **Text compression** — Removed input truncation limits, supports any prompt length
+- **Ollama optimization** — Added `keep_alive` and `num_ctx` for faster inference
+
+### Fixed
+
+- VS Code webview broken `$(icon)` syntax (replaced with Unicode)
+- Dashboard stats displaying wrong values (apiCalls instead of tokensSaved)
+- CLI PowerShell angle bracket handling
+- `compress_prompt` output truncation at 200 tokens
+
 ## [1.2.0] - 2026-06-24
 
 ### Fixed

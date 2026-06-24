@@ -211,13 +211,15 @@ OUTPUT (shorter version of the same prompt, nothing else):"""
         self.config = config
         self.client = client
 
-    def _ollama_generate(self, prompt: str) -> str:
+    def _ollama_generate(self, prompt: str, max_tokens: int = 0) -> str:
         """Call Ollama for text compression. Uses shared FastClient if available."""
+        if max_tokens <= 0:
+            max_tokens = self.config.max_local_summary_tokens * 2
         if self.client:
             return self.client.ollama_generate(
                 model=self.config.predictor_model,
                 prompt=prompt,
-                max_tokens=self.config.max_local_summary_tokens * 4,
+                max_tokens=max_tokens,
             )
         # Fallback: direct requests if no client shared
         import requests as _requests
@@ -226,9 +228,11 @@ OUTPUT (shorter version of the same prompt, nothing else):"""
             "model": self.config.predictor_model,
             "prompt": prompt,
             "stream": False,
+            "keep_alive": "10m",
             "options": {
                 "temperature": self.config.temperature,
-                "num_predict": self.config.max_local_summary_tokens * 4,
+                "num_predict": max_tokens,
+                "num_ctx": 4096,
             },
         }
         try:
@@ -338,12 +342,12 @@ OUTPUT (shorter version of the same prompt, nothing else):"""
 
         # Select prompt template
         prompt_map = {
-            "compress": self.COMPRESS_PROMPT.format(user_text=text[:3000]),
-            "summarize": self.SUMMARIZE_PROMPT.format(user_text=text[:3000]),
+            "compress": self.COMPRESS_PROMPT.format(user_text=text),
+            "summarize": self.SUMMARIZE_PROMPT.format(user_text=text),
             "condense": self.CONDENSE_PROMPT.format(
-                user_text=text[:3000], question=question or "Answer the query"
+                user_text=text, question=question or "Answer the query"
             ),
-            "code": self.CODE_PROMPT.format(user_text=text[:3000]),
+            "code": self.CODE_PROMPT.format(user_text=text),
         }
         prompt = prompt_map.get(mode, prompt_map["compress"])
 
@@ -418,8 +422,8 @@ OUTPUT (shorter version of the same prompt, nothing else):"""
         start = time.time()
         original_tokens = self._estimate_tokens(text)
 
-        prompt = self.COMPRESS_ONLY_PROMPT.format(user_text=text[:4000])
-        compressed = self._ollama_generate(prompt).strip()
+        prompt = self.COMPRESS_ONLY_PROMPT.format(user_text=text)
+        compressed = self._ollama_generate(prompt, max_tokens=500).strip()
 
         compressed_tokens = self._estimate_tokens(compressed)
         elapsed_ms = (time.time() - start) * 1000

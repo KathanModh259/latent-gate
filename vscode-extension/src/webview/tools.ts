@@ -10,9 +10,7 @@ export class ToolsProvider implements vscode.WebviewViewProvider {
         this.client = client;
     }
 
-    public resolveWebviewView(
-        webviewView: vscode.WebviewView,
-    ) {
+    public resolveWebviewView(webviewView: vscode.WebviewView) {
         this._view = webviewView;
 
         webviewView.webview.options = {
@@ -38,7 +36,6 @@ export class ToolsProvider implements vscode.WebviewViewProvider {
 
     private _getHtmlForWebview(webview: vscode.Webview): string {
         const nonce = getNonce();
-
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -46,177 +43,177 @@ export class ToolsProvider implements vscode.WebviewViewProvider {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LatentGate Tools</title>
     <style>
-        :root {
-            --container-padding: 20px;
-        }
-
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            padding: 0;
-            margin: 0;
             font-family: var(--vscode-font-family);
             font-size: var(--vscode-font-size);
             color: var(--vscode-foreground);
             background: var(--vscode-sideBar-background);
+            padding: 12px;
         }
 
-        .container {
-            padding: var(--container-padding);
-        }
-
-        h2 {
-            margin-top: 0;
-            font-size: 14px;
+        .section-title {
+            font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
             color: var(--vscode-sideBarSectionHeader-foreground);
-            border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border);
-            padding-bottom: 8px;
-        }
-
-        .tool-card {
-            padding: 12px;
-            border-radius: 4px;
-            background: var(--vscode-input-background);
             margin-bottom: 8px;
         }
 
-        .tool-name {
-            font-weight: 600;
-            margin-bottom: 4px;
-            color: var(--vscode-terminal-ansiCyan);
-        }
-
-        .tool-desc {
-            font-size: 12px;
-            color: var(--vscode-descriptionForeground);
-        }
-
-        .actions {
+        .tool-list {
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            margin-top: 16px;
+            gap: 6px;
+            margin-bottom: 16px;
+        }
+        .tool-item {
+            padding: 10px;
+            border-radius: 6px;
+            background: var(--vscode-input-background);
+            border-left: 3px solid var(--vscode-terminal-ansiCyan);
+        }
+        .tool-item .tool-name {
+            font-size: 12px;
+            font-weight: 600;
+            font-family: var(--vscode-editor-font-family);
+            color: var(--vscode-terminal-ansiCyan);
+            margin-bottom: 3px;
+        }
+        .tool-item .tool-desc {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            line-height: 1.4;
         }
 
-        .action-btn {
+        .shortcuts {
+            margin-bottom: 16px;
+        }
+        .shortcut-row {
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 10px 12px;
-            border: none;
-            border-radius: 4px;
-            background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            cursor: pointer;
-            font-size: 13px;
-            text-align: left;
-            width: 100%;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px solid var(--vscode-widget-border);
+            font-size: 12px;
         }
-
-        .action-btn:hover {
-            background: var(--vscode-button-hoverBackground);
-        }
-
-        .action-btn.secondary {
-            background: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-
-        .action-btn.secondary:hover {
-            background: var(--vscode-button-secondaryHoverBackground);
-        }
-
-        .section {
-            margin-bottom: 20px;
-        }
-
-        .config-code {
-            font-family: var(--vscode-editor-font-family);
-            font-size: 11px;
-            padding: 8px;
-            border-radius: 4px;
-            background: var(--vscode-editor-background);
-            overflow-x: auto;
-            white-space: pre;
-            margin-top: 8px;
-        }
-
-        .keyboard-shortcut {
-            display: inline-block;
+        .shortcut-row:last-child { border-bottom: none; }
+        kbd {
             padding: 2px 6px;
             border-radius: 3px;
             background: var(--vscode-keybindingLabel-background);
             color: var(--vscode-keybindingLabel-foreground);
             border: 1px solid var(--vscode-keybindingLabel-border);
-            font-size: 11px;
             font-family: var(--vscode-editor-font-family);
+            font-size: 10px;
         }
+
+        .config-section {
+            margin-bottom: 16px;
+        }
+        .config-code {
+            font-family: var(--vscode-editor-font-family);
+            font-size: 11px;
+            padding: 10px;
+            border-radius: 6px;
+            background: var(--vscode-editor-background);
+            overflow-x: auto;
+            white-space: pre;
+            line-height: 1.5;
+        }
+
+        .btn-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 9px 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: var(--vscode-font-family);
+            cursor: pointer;
+            transition: opacity 0.15s;
+            text-align: left;
+            width: 100%;
+        }
+        .btn:hover { opacity: 0.85; }
+        .btn-primary {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+        .btn-secondary {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+        }
+        .btn .icon { font-size: 14px; flex-shrink: 0; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="section">
-            <h2>MCP Tools</h2>
-            <div class="tool-card">
-                <div class="tool-name">compress_image</div>
-                <div class="tool-desc">Image → ~150 tokens (saves ~86%)</div>
-            </div>
-            <div class="tool-card">
-                <div class="tool-name">compress_text</div>
-                <div class="tool-desc">Long prompts → ~100 tokens (saves ~85%)</div>
-            </div>
-            <div class="tool-card">
-                <div class="tool-name">compress_conversation</div>
-                <div class="tool-desc">Chat history → summary (saves ~86%)</div>
-            </div>
-            <div class="tool-card">
-                <div class="tool-name">compress_documents</div>
-                <div class="tool-desc">RAG docs → key facts (saves ~85%)</div>
-            </div>
-            <div class="tool-card">
-                <div class="tool-name">get_stats</div>
-                <div class="tool-desc">Session savings statistics</div>
-            </div>
+    <div class="section-title">MCP Tools</div>
+    <div class="tool-list">
+        <div class="tool-item">
+            <div class="tool-name">compress_image</div>
+            <div class="tool-desc">Image ~1,200 tokens -> ~150 tokens (86% savings)</div>
         </div>
-
-        <div class="section">
-            <h2>Keyboard Shortcuts</h2>
-            <p style="font-size: 12px;">
-                Compress Selection: <span class="keyboard-shortcut">Ctrl+Shift+Alt+C</span><br>
-                Show Dashboard: <span class="keyboard-shortcut">Ctrl+Shift+Alt+D</span>
-            </p>
+        <div class="tool-item">
+            <div class="tool-name">compress_text</div>
+            <div class="tool-desc">Long prompts ~500 tokens -> ~100 tokens (85% savings)</div>
         </div>
+        <div class="tool-item">
+            <div class="tool-name">compress_conversation</div>
+            <div class="tool-desc">Chat history -> compact summary (86% savings)</div>
+        </div>
+        <div class="tool-item">
+            <div class="tool-name">compress_documents</div>
+            <div class="tool-desc">RAG docs -> key facts only (85% savings)</div>
+        </div>
+        <div class="tool-item">
+            <div class="tool-name">get_stats</div>
+            <div class="tool-desc">Session token savings statistics</div>
+        </div>
+    </div>
 
-        <div class="section">
-            <h2>MCP Configuration</h2>
-            <div class="config-code">{
+    <div class="section-title">Shortcuts</div>
+    <div class="shortcuts">
+        <div class="shortcut-row">
+            <span>Compress Selection</span>
+            <span><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd></span>
+        </div>
+        <div class="shortcut-row">
+            <span>Show Dashboard</span>
+            <span><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd></span>
+        </div>
+    </div>
+
+    <div class="section-title">MCP Config</div>
+    <div class="config-section">
+        <div class="config-code">{
   "latent-gate": {
     "command": "python",
     "args": ["-m", "latent_gate.mcp_server"]
   }
 }</div>
-        </div>
+    </div>
 
-        <div class="actions">
-            <button class="action-btn" id="btnConfigure">
-                <span class="icon">$(plug)</span>
-                Configure MCP Server
-            </button>
-            <button class="action-btn secondary" id="btnSettings">
-                <span class="icon">$(settings-gear)</span>
-                Open Settings
-            </button>
-            <button class="action-btn secondary" id="btnDocs">
-                <span class="icon">$(book)</span>
-                View Documentation
-            </button>
-        </div>
+    <div class="btn-list">
+        <button class="btn btn-primary" id="btnConfigure">
+            <span class="icon">&#9881;</span> Configure MCP
+        </button>
+        <button class="btn btn-secondary" id="btnSettings">
+            <span class="icon">&#9881;</span> Settings
+        </button>
+        <button class="btn btn-secondary" id="btnDocs">
+            <span class="icon">&#128214;</span> Documentation
+        </button>
     </div>
 
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
-
         document.getElementById('btnConfigure').addEventListener('click', () => {
             vscode.postMessage({ command: 'configureMcp' });
         });

@@ -163,21 +163,33 @@ def main():
 
     # ---- Run pipeline ----
     try:
-        pipeline = LatentGatePipeline(config, preload=False)
-
         if args.compress_only and text_input:
-            result = pipeline.compress_prompt(text_input)
-            result["input_type"] = "compress_only"
-        elif args.image and text_input:
-            result = pipeline.query_universal(
-                image=args.image, text=text_input, question=args.question
+            # Fast path: bypass full pipeline, use TextProcessor directly
+            from latent_gate.text_processor import TextProcessor
+            from latent_gate.fast_client import FastClient
+            tp_config = PipelineConfig(
+                ollama_base_url=args.ollama_url,
+                predictor_model=args.predictor_model,
+                log_level="DEBUG" if args.verbose else "WARNING",
             )
-        elif args.image:
-            result = pipeline.query(args.image, args.question or "Describe this image.")
+            client = FastClient(tp_config)
+            processor = TextProcessor(tp_config, client=client)
+            result = processor.compress_prompt(text_input)
+            result["input_type"] = "compress_only"
+            client.close()
         else:
-            result = pipeline.query_text(text_input, question=args.question, mode=args.mode)
+            pipeline = LatentGatePipeline(config, preload=False)
 
-        pipeline.close()
+            if args.image and text_input:
+                result = pipeline.query_universal(
+                    image=args.image, text=text_input, question=args.question
+                )
+            elif args.image:
+                result = pipeline.query(args.image, args.question or "Describe this image.")
+            else:
+                result = pipeline.query_text(text_input, question=args.question, mode=args.mode)
+
+            pipeline.close()
 
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
