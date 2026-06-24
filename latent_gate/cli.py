@@ -2,17 +2,20 @@
 Command-Line Interface for LatentGate.
 
 Usage:
-    # Image mode (original)
-    python -m latent_gate image.jpg "What is this?" --provider ollama
+    # Image mode
+    latent-gate image.jpg "What is this?" --provider ollama
 
-    # Text mode (NEW)
-    python -m latent_gate --text "Your long prompt here..." --provider openai
+    # Text mode
+    latent-gate --text "Your prompt here" --provider openai
 
-    # Text from file (NEW)
-    python -m latent_gate --text-file prompt.txt --provider openai
+    # From file (best for long text)
+    latent-gate --text-file prompt.txt --provider openai
 
-    # Text + Image combined (NEW)
-    python -m latent_gate image.jpg "Question" --text "Extra context..." --provider ollama
+    # Pipe from stdin (best for scripts)
+    cat prompt.txt | latent-gate --text-file - --provider openai
+
+    # Compress only (no LLM call)
+    latent-gate --text-file prompt.txt --compress-only
 """
 
 import sys
@@ -23,38 +26,51 @@ from latent_gate.config import PipelineConfig
 from latent_gate.pipeline import LatentGatePipeline
 
 
+def _read_stdin():
+    """Read all text from stdin if data is available."""
+    if sys.stdin.isatty():
+        return ""
+    return sys.stdin.read()
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="latent-gate",
         description=(
-            "LatentGate — Process Locally. Send Smart. Pay Less.\n"
-            "A VL-JEPA inspired vision-language pipeline.\n\n"
-            "Supports: Image queries, Text compression, Conversation, RAG docs."
+            "LatentGate - Process Locally. Send Smart. Pay Less.\n"
+            "Compress images & text locally via Ollama, send compact payloads to any LLM."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            '  python -m latent_gate photo.jpg "What is this?"\n'
-            '  python -m latent_gate --text "Write an essay about..." --provider openai\n'
-            "  python -m latent_gate --text-file long_prompt.txt --provider openai\n"
-            '  python -m latent_gate photo.jpg "Analyze" --text "Extra context..."\n'
+            '  latent-gate photo.jpg "What is this?"\n'
+            '  latent-gate --text "Your prompt" --provider openai\n'
+            "  latent-gate --text-file prompt.txt --provider openai\n"
+            "  type prompt.txt | latent-gate --text-file -\n"
+            '  latent-gate photo.jpg "Analyze" --text "Extra context..."\n'
+            "\n"
+            "Tip: For long prompts, use --text-file instead of --text\n"
+            "     to avoid shell quoting issues."
         ),
     )
 
     # Input sources
     parser.add_argument("image", nargs="?", default="", help="Path to image file (optional)")
     parser.add_argument("question", nargs="?", default="", help="Question (optional)")
-    parser.add_argument("--text", "-t", default="", help="Text prompt to compress and send")
-    parser.add_argument("--text-file", "-tf", default="", help="Read text prompt from a file")
+    parser.add_argument("--text", "-t", default="", help="Text prompt (short text only)")
+    parser.add_argument(
+        "--text-file", "-tf", default="",
+        help="Read text from file. Use '-' to read from stdin (pipe).",
+    )
     parser.add_argument(
         "--compress-only",
         action="store_true",
-        help="Compress prompt only (no cloud LLM call). Saves tokens.",
+        help="Compress prompt only (no LLM call). Shows token savings.",
     )
 
     # Provider settings
     parser.add_argument(
-        "--provider",
+        "--provider", "-p",
         default="ollama",
         choices=[
             "openai", "anthropic", "google", "ollama",
@@ -70,7 +86,7 @@ def main():
 
     # Compression settings
     parser.add_argument(
-        "--mode",
+        "--mode", "-m",
         default="auto",
         choices=["auto", "compress", "summarize", "condense", "code"],
         help="Text compression mode (default: auto-detect)",
@@ -98,19 +114,39 @@ def main():
         }
         args.remote_model = defaults.get(args.provider, "gpt-4o-mini")
 
-    # ---- Read text from file if specified ----
+    # ---- Read text input ----
     text_input = args.text
+
     if args.text_file:
-        try:
-            with open(args.text_file, "r", encoding="utf-8") as f:
-                text_input = f.read()
-        except FileNotFoundError:
-            print(f"Error: File not found: {args.text_file}", file=sys.stderr)
-            sys.exit(1)
+        if args.text_file == "-":
+            # Read from stdin (piped input)
+            text_input = _read_stdin()
+            if not text_input:
+                print("Error: No input received from stdin. Pipe text or use --text-file <path>", file=sys.stderr)
+                sys.exit(1)
+        else:
+            try:
+                with open(args.text_file, "r", encoding="utf-8") as f:
+                    text_input = f.read()
+            except FileNotFoundError:
+                print(f"Error: File not found: {args.text_file}", file=sys.stderr)
+                sys.exit(1)
+            except Exception as e:
+                print(f"Error reading file: {e}", file=sys.stderr)
+                sys.exit(1)
+    elif not sys.stdin.isatty():
+        # Auto-detect piped input when no --text-file given
+        text_input = _read_stdin()
 
     # ---- Validate: need at least one input ----
     if not args.image and not text_input:
-        parser.error("Provide an image, --text, or --text-file. Run with -h for help.")
+        parser.error(
+            "No input provided. Give me something to work with:\n"
+            "  An image:       latent-gate photo.jpg \"What is this?\"\n"
+            "  Short text:     latent-gate --text \"your prompt\"\n"
+            "  Long text:      latent-gate --text-file prompt.txt\n"
+            "  Piped text:     cat prompt.txt | latent-gate --text-file -"
+        )
 
     # ---- Build config ----
     config = PipelineConfig(
@@ -127,23 +163,21 @@ def main():
 
     # ---- Run pipeline ----
     try:
-        pipeline = LatentGatePipeline(config)
+        pipeline = LatentGatePipeline(config, preload=False)
 
         if args.compress_only and text_input:
-            # Compress-only mode: no cloud LLM call
             result = pipeline.compress_prompt(text_input)
             result["input_type"] = "compress_only"
         elif args.image and text_input:
-            # Universal: Image + Text
             result = pipeline.query_universal(
                 image=args.image, text=text_input, question=args.question
             )
         elif args.image:
-            # Image only
             result = pipeline.query(args.image, args.question or "Describe this image.")
         else:
-            # Text only
             result = pipeline.query_text(text_input, question=args.question, mode=args.mode)
+
+        pipeline.close()
 
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
