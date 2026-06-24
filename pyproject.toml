@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "latent-gate"
-version = "1.0.0"
+version = "1.2.0"
 description = "Local-first vision-language pipeline inspired by VL-JEPA. Compress images, text, conversations, and RAG documents locally via Ollama before sending to any LLM API. Includes MCP server, FastAPI server, video processing, and more. ~80% token savings."
 readme = "README.md"
 license = {text = "MIT"}

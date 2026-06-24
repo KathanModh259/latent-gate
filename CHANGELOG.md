@@ -5,6 +5,24 @@ All notable changes to LatentGate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-06-24
+
+### Fixed
+
+- **Config save/load** — `_config_to_dict()` now includes `offline_first`, `offline_model`, `adaptive_compression`, `target_token_budget` (were silently dropped)
+- **Adaptive compression** — `complexity`/`max_tokens` now actually passed to `TextProcessor.compress()` instead of being computed and discarded
+- **Root logger hijack** — `pipeline.py` no longer calls `logging.basicConfig()`; uses library-scoped logger instead
+- **Resource leaks** — Removed unused `ThreadPoolExecutor` from `LocalProcessor` and `AsyncLatentGatePipeline`
+- **Dead code** — Removed unused `_model = None` from `selective_decoder.py`
+
+### Changed
+
+- **Refactored `remote_decoder.py`** — Extracted `OpenAICompatibleDecoder` base class; 9 decoder classes now share streaming/SSE logic (742 → 360 lines, -51%)
+- **`TextProcessor` uses `FastClient`** — Now benefits from connection pooling and `keep_alive` instead of raw `requests.post()`
+- **Consolidated examples** — Merged 5 redundant example files into single `providers.py`
+- **Removed redundant files** — `requirements.txt`, `requirements-dev.txt`, `publish.py`, `MANIFEST.in`, duplicate MCP server
+- **Updated `.gitignore`** — Added `.latentgate_costs.db`, `*.db` patterns
+
 ## [1.1.0] - 2026-06-23
 
 ### Added
