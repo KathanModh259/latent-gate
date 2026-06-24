@@ -21,7 +21,6 @@ import time
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
-
 logger = logging.getLogger("latent_gate.cost")
 
 
@@ -39,6 +38,7 @@ DEFAULT_PRICING = {
     "anthropic": {
         "claude-3-5-sonnet-20241022": {"input": 0.003, "output": 0.015},
         "claude-3-haiku-20240307": {"input": 0.00025, "output": 0.00125},
+        "claude-sonnet-4-20250514": {"input": 0.003, "output": 0.015},
     },
     "google": {
         "gemini-2.0-flash": {"input": 0.000075, "output": 0.0003},
@@ -47,12 +47,33 @@ DEFAULT_PRICING = {
     "ollama": {
         "default": {"input": 0.0, "output": 0.0},  # Free local inference
     },
+    "groq": {
+        "llama-3.1-8b-instant": {"input": 0.00005, "output": 0.00008},
+        "llama-3.1-70b-versatile": {"input": 0.00059, "output": 0.00079},
+        "mixtral-8x7b-32768": {"input": 0.00024, "output": 0.00024},
+    },
+    "deepseek": {
+        "deepseek-chat": {"input": 0.00014, "output": 0.00028},
+        "deepseek-coder": {"input": 0.00014, "output": 0.00028},
+    },
+    "together": {
+        "meta-llama/Llama-3-8b-chat-hf": {"input": 0.0002, "output": 0.0002},
+        "meta-llama/Llama-3-70b-chat-hf": {"input": 0.0009, "output": 0.0009},
+    },
+    "azure": {
+        "default": {"input": 0.005, "output": 0.015},  # Same as OpenAI
+    },
+    "bedrock": {
+        "anthropic.claude-3-haiku-20240307-v1:0": {"input": 0.00025, "output": 0.00125},
+        "anthropic.claude-3-sonnet-20240229-v1:0": {"input": 0.003, "output": 0.015},
+    },
 }
 
 
 @dataclass
 class UsageRecord:
     """Single usage record for tracking."""
+
     timestamp: float
     session_id: str
     query_type: str  # image, text, conversation, documents, universal
@@ -70,14 +91,14 @@ class UsageRecord:
 class CostTracker:
     """
     Track API usage and costs with persistent storage.
-    
+
     Usage:
         tracker = CostTracker()
         tracker.record_usage(...)
         stats = tracker.get_statistics()
         tracker.export_report("report.json")
     """
-    
+
     def __init__(
         self,
         db_path: str = ".latentgate_costs.db",
@@ -87,19 +108,19 @@ class CostTracker:
         self.db_path = db_path
         self.pricing = pricing or DEFAULT_PRICING
         self.session_id = session_id or f"session_{int(time.time())}"
-        
+
         # Initialize database
         self._init_db()
-        
+
         # In-memory cache for current session
         self._session_records: List[UsageRecord] = []
         self._session_start = time.time()
-    
+
     def _init_db(self):
         """Initialize SQLite database."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS usage (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,18 +138,18 @@ class CostTracker:
                 was_cached BOOLEAN NOT NULL
             )
         """)
-        
+
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_session ON usage(session_id)
         """)
-        
+
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_timestamp ON usage(timestamp)
         """)
-        
+
         conn.commit()
         conn.close()
-    
+
     def record_usage(
         self,
         query_type: str,
@@ -143,7 +164,7 @@ class CostTracker:
     ):
         """
         Record a usage event.
-        
+
         Args:
             query_type: Type of query (image, text, conversation, documents, universal)
             provider: LLM provider (openai, anthropic, google, ollama)
@@ -157,7 +178,7 @@ class CostTracker:
         """
         # Calculate cost
         cost = self._calculate_cost(provider, model, input_tokens, output_tokens)
-        
+
         record = UsageRecord(
             timestamp=time.time(),
             session_id=self.session_id,
@@ -172,42 +193,57 @@ class CostTracker:
             latency_ms=latency_ms,
             was_cached=was_cached,
         )
-        
+
         # Add to in-memory cache
         self._session_records.append(record)
-        
+
         # Persist to database
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
-        cursor.execute("""
+
+        cursor.execute(
+            """
             INSERT INTO usage (
                 timestamp, session_id, query_type, provider, model,
                 input_tokens, output_tokens, estimated_cost, tokens_saved,
                 compression_ratio, latency_ms, was_cached
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            record.timestamp, record.session_id, record.query_type,
-            record.provider, record.model, record.input_tokens,
-            record.output_tokens, record.estimated_cost, record.tokens_saved,
-            record.compression_ratio, record.latency_ms, record.was_cached,
-        ))
-        
+        """,
+            (
+                record.timestamp,
+                record.session_id,
+                record.query_type,
+                record.provider,
+                record.model,
+                record.input_tokens,
+                record.output_tokens,
+                record.estimated_cost,
+                record.tokens_saved,
+                record.compression_ratio,
+                record.latency_ms,
+                record.was_cached,
+            ),
+        )
+
         conn.commit()
         conn.close()
-        
+
         logger.debug(f"Recorded usage: {query_type} via {provider}/{model} - ${cost:.6f}")
-    
-    def _calculate_cost(self, provider: str, model: str, input_tokens: int, output_tokens: int) -> float:
+
+    def _calculate_cost(
+        self, provider: str, model: str, input_tokens: int, output_tokens: int
+    ) -> float:
         """Calculate cost for a request."""
         provider_pricing = self.pricing.get(provider, {})
-        model_pricing = provider_pricing.get(model, provider_pricing.get("default", {"input": 0, "output": 0}))
-        
+        model_pricing = provider_pricing.get(
+            model, provider_pricing.get("default", {"input": 0, "output": 0})
+        )
+
         input_cost = (input_tokens / 1000) * model_pricing["input"]
         output_cost = (output_tokens / 1000) * model_pricing["output"]
-        
+
         return input_cost + output_cost
-    
+
     def get_statistics(
         self,
         start_time: Optional[float] = None,
@@ -216,41 +252,41 @@ class CostTracker:
     ) -> Dict[str, Any]:
         """
         Get usage statistics.
-        
+
         Args:
             start_time: Start timestamp (None = all time)
             end_time: End timestamp (None = now)
             session_id: Filter by session (None = all sessions)
-            
+
         Returns:
             Dictionary with statistics.
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         # Build query
         query = "SELECT * FROM usage WHERE 1=1"
         params = []
-        
+
         if start_time:
             query += " AND timestamp >= ?"
             params.append(start_time)
-        
+
         if end_time:
             query += " AND timestamp <= ?"
             params.append(end_time)
-        
+
         if session_id:
             query += " AND session_id = ?"
             params.append(session_id)
-        
+
         cursor.execute(query, params)
         rows = cursor.fetchall()
         conn.close()
-        
+
         if not rows:
             return self._empty_statistics()
-        
+
         # Column indices: 0=id, 1=timestamp, 2=session_id, 3=query_type,
         # 4=provider, 5=model, 6=input_tokens, 7=output_tokens, 8=estimated_cost,
         # 9=tokens_saved, 10=compression_ratio, 11=latency_ms, 12=was_cached
@@ -261,8 +297,6 @@ class CostTracker:
         total_cost = sum(r[8] for r in rows)
         total_saved = sum(r[9] for r in rows)
         total_latency = sum(r[11] for r in rows)
-        
-        # Group by provider
         by_provider = {}
         for row in rows:
             provider = row[4]
@@ -279,7 +313,7 @@ class CostTracker:
             by_provider[provider]["output_tokens"] += row[7]
             by_provider[provider]["cost"] += row[8]
             by_provider[provider]["tokens_saved"] += row[9]
-        
+
         # Group by query type
         by_type = {}
         for row in rows:
@@ -289,7 +323,7 @@ class CostTracker:
             by_type[query_type]["queries"] += 1
             by_type[query_type]["cost"] += row[8]
             by_type[query_type]["tokens_saved"] += row[9]
-        
+
         return {
             "total_queries": len(rows),
             "total_input_tokens": total_input_tokens,
@@ -297,17 +331,15 @@ class CostTracker:
             "total_cost": round(total_cost, 6),
             "total_tokens_saved": total_saved,
             "average_latency_ms": round(total_latency / len(rows), 2),
-            "average_compression_ratio": round(
-                sum(r[10] for r in rows) / len(rows), 2
-            ),
+            "average_compression_ratio": round(sum(r[10] for r in rows) / len(rows), 2),
             "by_provider": by_provider,
             "by_type": by_type,
             "time_range": {
-                "start": rows[0][1],
-                "end": rows[-1][1],
+                "start": min(r[1] for r in rows),
+                "end": max(r[1] for r in rows),
             },
         }
-    
+
     def _empty_statistics(self) -> Dict[str, Any]:
         """Return empty statistics structure."""
         return {
@@ -322,18 +354,18 @@ class CostTracker:
             "by_type": {},
             "time_range": {"start": 0, "end": 0},
         }
-    
+
     def get_session_statistics(self) -> Dict[str, Any]:
         """Get statistics for the current session."""
         if not self._session_records:
             return self._empty_statistics()
-        
+
         total_input = sum(r.input_tokens for r in self._session_records)
         total_output = sum(r.output_tokens for r in self._session_records)
         total_cost = sum(r.estimated_cost for r in self._session_records)
         total_saved = sum(r.tokens_saved for r in self._session_records)
         total_latency = sum(r.latency_ms for r in self._session_records)
-        
+
         return {
             "session_id": self.session_id,
             "duration_seconds": round(time.time() - self._session_start, 2),
@@ -347,7 +379,7 @@ class CostTracker:
                 (total_saved / max(total_input + total_saved, 1)) * 100, 2
             ),
         }
-    
+
     def get_cost_projection(
         self,
         daily_queries: int,
@@ -358,31 +390,31 @@ class CostTracker:
     ) -> Dict[str, Any]:
         """
         Project costs based on usage patterns.
-        
+
         Args:
             daily_queries: Expected queries per day
             avg_input_tokens: Average input tokens per query
             avg_output_tokens: Average output tokens per query
             provider: LLM provider
             model: Model name
-            
+
         Returns:
             Cost projection dictionary.
         """
         # Cost per query
         cost_per_query = self._calculate_cost(provider, model, avg_input_tokens, avg_output_tokens)
-        
+
         # Projections
         daily_cost = cost_per_query * daily_queries
         weekly_cost = daily_cost * 7
         monthly_cost = daily_cost * 30
         yearly_cost = daily_cost * 365
-        
+
         # With compression (assuming 80% reduction)
         compressed_input = avg_input_tokens * 0.2
         compressed_cost = self._calculate_cost(provider, model, compressed_input, avg_output_tokens)
         compressed_daily = compressed_cost * daily_queries
-        
+
         return {
             "scenario": {
                 "daily_queries": daily_queries,
@@ -414,7 +446,7 @@ class CostTracker:
                 "percentage": round((1 - compressed_cost / max(cost_per_query, 0.000001)) * 100, 2),
             },
         }
-    
+
     def export_report(
         self,
         filepath: str,
@@ -424,7 +456,7 @@ class CostTracker:
     ):
         """
         Export usage report to file.
-        
+
         Args:
             filepath: Output file path
             fmt: Export format ("json" or "csv")
@@ -432,67 +464,80 @@ class CostTracker:
             end_time: End timestamp filter
         """
         stats = self.get_statistics(start_time, end_time)
-        
+
         if fmt == "json":
             with open(filepath, "w") as f:
                 json.dump(stats, f, indent=2)
-        
+
         elif fmt == "csv":
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
+
             query = "SELECT * FROM usage WHERE 1=1"
             params = []
-            
+
             if start_time:
                 query += " AND timestamp >= ?"
                 params.append(start_time)
             if end_time:
                 query += " AND timestamp <= ?"
                 params.append(end_time)
-            
+
             cursor.execute(query, params)
             rows = cursor.fetchall()
             conn.close()
-            
+
             with open(filepath, "w", newline="") as f:
                 writer = csv.writer(f)
-                writer.writerow([
-                    "timestamp", "session_id", "query_type", "provider", "model",
-                    "input_tokens", "output_tokens", "estimated_cost", "tokens_saved",
-                    "compression_ratio", "latency_ms", "was_cached"
-                ])
-                writer.writerows(rows)
-        
+                writer.writerow(
+                    [
+                        "timestamp",
+                        "session_id",
+                        "query_type",
+                        "provider",
+                        "model",
+                        "input_tokens",
+                        "output_tokens",
+                        "estimated_cost",
+                        "tokens_saved",
+                        "compression_ratio",
+                        "latency_ms",
+                        "was_cached",
+                    ]
+                )
+                # Skip id column (index 0) from SELECT *
+                writer.writerows(row[1:] for row in rows)
+
         else:
             raise ValueError(f"Unsupported format: {fmt}")
-        
+
         logger.info(f"Exported report to {filepath} ({fmt})")
-    
+
     def clear_history(self, before_timestamp: Optional[float] = None):
         """
         Clear usage history.
-        
+
         Args:
             before_timestamp: Only clear records before this timestamp (None = clear all)
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         if before_timestamp:
             cursor.execute("DELETE FROM usage WHERE timestamp < ?", (before_timestamp,))
         else:
             cursor.execute("DELETE FROM usage")
-        
+
         conn.commit()
         conn.close()
-        
+
         logger.info("Cleared usage history")
 
 
 # ============================================================================
 # Convenience Functions
 # ============================================================================
+
 
 def get_tracker(db_path: str = ".latentgate_costs.db") -> CostTracker:
     """Get a cost tracker instance."""

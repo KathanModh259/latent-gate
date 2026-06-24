@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "latent-gate.fullname" . }}
+  labels:
+    {{- include "latent-gate.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "latent-gate.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "latent-gate.selectorLabels" . | nindent 8 }}
+    spec:
+      initContainers:
+        - name: ollama-init
+          image: "{{ .Values.ollama.image }}:{{ .Values.ollama.tag }}"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Waiting for Ollama to be ready..."
+              until curl -sf http://{{ include "latent-gate.fullname" . }}-ollama:{{ .Values.ollama.service.port }}/api/tags; do
+                sleep 2
+              done
+              echo "Pulling vision model: {{ .Values.ollama.models.vision }}"
+              ollama pull {{ .Values.ollama.models.vision }}
+              echo "Pulling predictor model: {{ .Values.ollama.models.predictor }}"
+              ollama pull {{ .Values.ollama.models.predictor }}
+              echo "Models ready!"
+          env:
+            - name: OLLAMA_HOST
+              value: "http://{{ include "latent-gate.fullname" . }}-ollama:{{ .Values.ollama.service.port }}"
+      containers:
+        - name: latent-gate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.latentgate.port }}
+              protocol: TCP
+          env:
+            - name: LATENTGATE_REMOTE_PROVIDER
+              value: {{ .Values.latentgate.remoteProvider | quote }}
+            - name: LATENTGATE_REMOTE_MODEL
+              value: {{ .Values.latentgate.remoteModel | quote }}
+            - name: LATENTGATE_VISION_MODEL
+              value: {{ .Values.latentgate.visionModel | quote }}
+            - name: LATENTGATE_LOG_LEVEL
+              value: {{ .Values.latentgate.logLevel | quote }}
+            - name: OLLAMA_BASE_URL
+              value: "http://{{ include "latent-gate.fullname" . }}-ollama:{{ .Values.ollama.service.port }}"
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "latent-gate.fullname" . }}-secrets
+                  key: openai-api-key
+                  optional: true
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "latent-gate.fullname" . }}-secrets
+                  key: anthropic-api-key
+                  optional: true
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "latent-gate.fullname" . }}-secrets
+                  key: groq-api-key
+                  optional: true
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "latent-gate.fullname" . }}-secrets
+                  key: deepseek-api-key
+                  optional: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.latentgate.resources | nindent 12 }}
+        - name: ollama
+          image: "{{ .Values.ollama.image }}:{{ .Values.ollama.tag }}"
+          ports:
+            - name: ollama
+              containerPort: {{ .Values.ollama.service.port }}
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: ollama
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+      volumes:
+        - name: ollama-data
+          persistentVolumeClaim:
+            claimName: {{ include "latent-gate.fullname" . }}-ollama-pvc

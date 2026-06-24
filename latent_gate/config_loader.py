@@ -20,7 +20,6 @@ from typing import Optional, Dict, Any
 
 from latent_gate.config import PipelineConfig
 
-
 logger = logging.getLogger("latent_gate.config")
 
 
@@ -28,29 +27,30 @@ logger = logging.getLogger("latent_gate.config")
 # Format Detection and Loading
 # ============================================================================
 
+
 def load_config(
     filepath: str,
     env_prefix: str = "LATENTGATE_",
 ) -> PipelineConfig:
     """
     Load configuration from a file.
-    
+
     Args:
         filepath: Path to config file (YAML, TOML, or JSON)
         env_prefix: Environment variable prefix for overrides
-        
+
     Returns:
         PipelineConfig instance
     """
     path = Path(filepath)
-    
+
     if not path.exists():
         logger.warning(f"Config file not found: {filepath}, using defaults")
         return PipelineConfig()
-    
+
     # Detect format from extension
     suffix = path.suffix.lower()
-    
+
     if suffix in (".yaml", ".yml"):
         data = _load_yaml(path)
     elif suffix == ".toml":
@@ -60,13 +60,13 @@ def load_config(
     else:
         # Try JSON as default
         data = _load_json(path)
-    
+
     # Apply environment variable overrides
     data = _apply_env_overrides(data, env_prefix)
-    
+
     # Create config from data
     config = _dict_to_config(data)
-    
+
     logger.info(f"Loaded config from {filepath}")
     return config
 
@@ -78,17 +78,17 @@ def save_config(
 ):
     """
     Save configuration to a file.
-    
+
     Args:
         config: PipelineConfig instance
         filepath: Output file path
         fmt: Force format (yaml, toml, json). Auto-detected from extension if None.
     """
     path = Path(filepath)
-    
+
     # Convert config to dict
     data = _config_to_dict(config)
-    
+
     # Detect format
     if fmt is None:
         suffix = path.suffix.lower()
@@ -98,10 +98,10 @@ def save_config(
             fmt = "toml"
         else:
             fmt = "json"
-    
+
     # Ensure parent directory exists
     path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Save
     if fmt == "yaml":
         _save_yaml(path, data)
@@ -109,7 +109,7 @@ def save_config(
         _save_toml(path, data)
     else:
         _save_json(path, data)
-    
+
     logger.info(f"Saved config to {filepath}")
 
 
@@ -117,16 +117,17 @@ def save_config(
 # Format Loaders
 # ============================================================================
 
+
 def _load_yaml(path: Path) -> Dict[str, Any]:
     """Load YAML config file."""
     try:
         import yaml
+
         with open(path, "r") as f:
             return yaml.safe_load(f) or {}
     except ImportError:
         raise ImportError(
-            "PyYAML is required for YAML config files. "
-            "Install with: pip install pyyaml"
+            "PyYAML is required for YAML config files. " "Install with: pip install pyyaml"
         )
 
 
@@ -134,12 +135,14 @@ def _load_toml(path: Path) -> Dict[str, Any]:
     """Load TOML config file."""
     try:
         import tomli
+
         with open(path, "rb") as f:
             return tomli.load(f)
     except ImportError:
         # Python 3.11+ has tomllib in stdlib
         try:
             import tomllib
+
             with open(path, "rb") as f:
                 return tomllib.load(f)
         except ImportError:
@@ -151,18 +154,23 @@ def _load_toml(path: Path) -> Dict[str, Any]:
 
 def _load_json(path: Path) -> Dict[str, Any]:
     """Load JSON config file."""
-    with open(path, "r") as f:
-        return json.load(f)
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in config file {path}: {e}")
 
 
 # ============================================================================
 # Format Savers
 # ============================================================================
 
+
 def _save_yaml(path: Path, data: Dict[str, Any]):
     """Save YAML config file."""
     try:
         import yaml
+
         with open(path, "w") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
     except ImportError:
@@ -173,12 +181,12 @@ def _save_toml(path: Path, data: Dict[str, Any]):
     """Save TOML config file."""
     try:
         import tomli_w
+
         with open(path, "wb") as f:
             tomli_w.dump(data, f)
     except ImportError:
         raise ImportError(
-            "tomli_w is required for writing TOML files. "
-            "Install with: pip install tomli_w"
+            "tomli_w is required for writing TOML files. " "Install with: pip install tomli_w"
         )
 
 
@@ -192,10 +200,11 @@ def _save_json(path: Path, data: Dict[str, Any]):
 # Environment Variable Overrides
 # ============================================================================
 
+
 def _apply_env_overrides(data: Dict[str, Any], prefix: str) -> Dict[str, Any]:
     """
     Apply environment variable overrides to config data.
-    
+
     Environment variables are mapped as:
         LATENTGATE_VISION_MODEL -> vision_model
         LATENTGATE_REMOTE_PROVIDER -> remote_provider
@@ -213,13 +222,26 @@ def _apply_env_overrides(data: Dict[str, Any], prefix: str) -> Dict[str, Any]:
         f"{prefix}ENABLE_CACHING": ("enable_caching", lambda x: x.lower() in ("true", "1", "yes")),
         f"{prefix}CACHE_DIR": "cache_dir",
         f"{prefix}LOG_LEVEL": "log_level",
-        f"{prefix}SELECTIVE_DECODING": ("selective_decoding", lambda x: x.lower() in ("true", "1", "yes")),
+        f"{prefix}OFFLINE_FIRST": (
+            "offline_first",
+            lambda x: x.lower() in ("true", "1", "yes"),
+        ),
+        f"{prefix}OFFLINE_MODEL": "offline_model",
+        f"{prefix}ADAPTIVE_COMPRESSION": (
+            "adaptive_compression",
+            lambda x: x.lower() in ("true", "1", "yes"),
+        ),
+        f"{prefix}TARGET_TOKEN_BUDGET": ("target_token_budget", int),
+        f"{prefix}SELECTIVE_DECODING": (
+            "selective_decoding",
+            lambda x: x.lower() in ("true", "1", "yes"),
+        ),
         f"{prefix}SIMILARITY_THRESHOLD": ("similarity_threshold", float),
         f"{prefix}USE_EMBEDDINGS": ("use_embeddings", lambda x: x.lower() in ("true", "1", "yes")),
         f"{prefix}TEMPERATURE": ("temperature", float),
         f"{prefix}REQUEST_TIMEOUT": ("request_timeout", int),
     }
-    
+
     for env_var, mapping in env_mapping.items():
         value = os.getenv(env_var)
         if value is not None:
@@ -231,13 +253,14 @@ def _apply_env_overrides(data: Dict[str, Any], prefix: str) -> Dict[str, Any]:
                     logger.warning(f"Invalid env var {env_var}={value}: {e}")
             else:
                 data[mapping] = value
-    
+
     return data
 
 
 # ============================================================================
 # Config Conversion
 # ============================================================================
+
 
 def _config_to_dict(config: PipelineConfig) -> Dict[str, Any]:
     """Convert PipelineConfig to dictionary."""
@@ -258,6 +281,10 @@ def _config_to_dict(config: PipelineConfig) -> Dict[str, Any]:
         "use_embeddings": config.use_embeddings,
         "temperature": config.temperature,
         "request_timeout": config.request_timeout,
+        "offline_first": config.offline_first,
+        "offline_model": config.offline_model,
+        "adaptive_compression": config.adaptive_compression,
+        "target_token_budget": config.target_token_budget,
     }
 
 
@@ -266,7 +293,7 @@ def _dict_to_config(data: Dict[str, Any]) -> PipelineConfig:
     # Filter to only valid fields
     valid_fields = {f.name for f in PipelineConfig.__dataclass_fields__.values()}
     filtered = {k: v for k, v in data.items() if k in valid_fields}
-    
+
     return PipelineConfig(**filtered)
 
 
@@ -274,10 +301,11 @@ def _dict_to_config(data: Dict[str, Any]) -> PipelineConfig:
 # Default Config Generation
 # ============================================================================
 
+
 def generate_default_config(filepath: str = "latentgate.yaml"):
     """
     Generate a default configuration file.
-    
+
     Args:
         filepath: Output file path
     """
@@ -290,17 +318,18 @@ def generate_default_config(filepath: str = "latentgate.yaml"):
 # Convenience Functions
 # ============================================================================
 
+
 def get_config(
     config_file: Optional[str] = None,
     env_prefix: str = "LATENTGATE_",
 ) -> PipelineConfig:
     """
     Get configuration from file or environment.
-    
+
     Args:
         config_file: Optional config file path
         env_prefix: Environment variable prefix
-        
+
     Returns:
         PipelineConfig instance
     """
@@ -318,28 +347,21 @@ def get_config(
             os.path.expanduser("~/.config/latentgate/config.yaml"),
             os.path.expanduser("~/.config/latentgate/config.toml"),
         ]
-        
+
         for location in standard_locations:
             if os.path.exists(location):
                 config_file = location
                 break
-    
+
     if config_file and os.path.exists(config_file):
         return load_config(config_file, env_prefix)
-    
+
     # Apply env overrides to default config
     config = PipelineConfig()
-    env_data = {}
-    
-    # Check for any LATENTGATE_ env vars
-    for key, value in os.environ.items():
-        if key.startswith(env_prefix):
-            field_name = key[len(env_prefix):].lower()
-            env_data[field_name] = value
-    
-    if env_data:
-        config_dict = _config_to_dict(config)
-        config_dict.update(env_data)
-        config = _dict_to_config(config_dict)
-    
+    config_dict = _config_to_dict(config)
+
+    # Apply env overrides with proper type conversion
+    config_dict = _apply_env_overrides(config_dict, env_prefix)
+    config = _dict_to_config(config_dict)
+
     return config

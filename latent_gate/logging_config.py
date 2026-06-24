@@ -21,7 +21,6 @@ from datetime import datetime
 from typing import Optional, Dict
 from contextvars import ContextVar
 
-
 # ============================================================================
 # Correlation ID
 # ============================================================================
@@ -33,10 +32,11 @@ correlation_id: ContextVar[Optional[str]] = ContextVar("correlation_id", default
 # JSON Formatter
 # ============================================================================
 
+
 class JSONFormatter(logging.Formatter):
     """
     JSON log formatter for structured logging.
-    
+
     Output format:
     {
         "timestamp": "2024-01-01T12:00:00.000Z",
@@ -47,7 +47,7 @@ class JSONFormatter(logging.Formatter):
         "extra": {...}
     }
     """
-    
+
     def format(self, record: logging.LogRecord) -> str:
         log_data = {
             "timestamp": datetime.fromtimestamp(record.created).isoformat(),
@@ -55,16 +55,16 @@ class JSONFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
-        
+
         # Add correlation ID if present
         corr_id = correlation_id.get()
         if corr_id:
             log_data["correlation_id"] = corr_id
-        
+
         # Add extra fields
         if hasattr(record, "extra_data"):
             log_data["extra"] = record.extra_data
-        
+
         # Add exception info if present
         if record.exc_info and record.exc_info[0]:
             log_data["exception"] = {
@@ -72,70 +72,71 @@ class JSONFormatter(logging.Formatter):
                 "message": str(record.exc_info[1]),
                 "traceback": self.formatException(record.exc_info),
             }
-        
+
         # Add performance metrics if present
         if hasattr(record, "duration_ms"):
             log_data["duration_ms"] = record.duration_ms
-        
+
         if hasattr(record, "tokens"):
             log_data["tokens"] = record.tokens
-        
+
         if hasattr(record, "cost"):
             log_data["cost"] = record.cost
-        
+
         return json.dumps(log_data, default=str)
 
 
 class HumanReadableFormatter(logging.Formatter):
     """
     Human-readable formatter with color support.
-    
+
     Format: [TIMESTAMP] LEVEL | logger | message
     """
-    
+
     # Colors for different log levels
     COLORS = {
-        "DEBUG": "\033[36m",    # Cyan
-        "INFO": "\033[32m",     # Green
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
         "WARNING": "\033[33m",  # Yellow
-        "ERROR": "\033[31m",    # Red
-        "CRITICAL": "\033[35m", # Magenta
+        "ERROR": "\033[31m",  # Red
+        "CRITICAL": "\033[35m",  # Magenta
     }
     RESET = "\033[0m"
-    
+
     def __init__(self, use_colors: bool = True):
         super().__init__()
         self.use_colors = use_colors and sys.stdout.isatty()
-    
+
     def format(self, record: logging.LogRecord) -> str:
         timestamp = datetime.fromtimestamp(record.created).strftime("%H:%M:%S.%f")[:-3]
-        
+
         if self.use_colors:
             color = self.COLORS.get(record.levelname, "")
             level = f"{color}{record.levelname:8s}{self.RESET}"
         else:
             level = record.levelname
-        
+
         # Shorten logger name
         logger_name = record.name.replace("latent_gate.", "")
-        
+
         message = record.getMessage()
-        
+
         # Add correlation ID if present
         corr_id = correlation_id.get()
         if corr_id:
             message = f"[{corr_id[:8]}] {message}"
-        
+
         # Add duration if present
         if hasattr(record, "duration_ms"):
             message = f"{message} ({record.duration_ms:.1f}ms)"
-        
+
         return f"{timestamp} | {level} | {logger_name} | {message}"
 
 
 # ============================================================================
 # Log Rotation
 # ============================================================================
+
 
 def create_rotating_handler(
     filename: str,
@@ -145,13 +146,13 @@ def create_rotating_handler(
 ) -> logging.Handler:
     """
     Create a rotating file handler.
-    
+
     Args:
         filename: Log file path
         max_bytes: Maximum file size before rotation
         backup_count: Number of backup files to keep
         json_format: Use JSON formatting
-        
+
     Returns:
         Configured logging handler
     """
@@ -160,12 +161,12 @@ def create_rotating_handler(
         maxBytes=max_bytes,
         backupCount=backup_count,
     )
-    
+
     if json_format:
         handler.setFormatter(JSONFormatter())
     else:
         handler.setFormatter(HumanReadableFormatter(use_colors=False))
-    
+
     return handler
 
 
@@ -178,14 +179,14 @@ def create_timed_handler(
 ) -> logging.Handler:
     """
     Create a timed rotating file handler.
-    
+
     Args:
         filename: Log file path
         when: Rotation time (midnight, h0, h1, etc.)
         interval: Rotation interval
         backup_count: Number of backup files to keep
         json_format: Use JSON formatting
-        
+
     Returns:
         Configured logging handler
     """
@@ -195,18 +196,19 @@ def create_timed_handler(
         interval=interval,
         backupCount=backup_count,
     )
-    
+
     if json_format:
         handler.setFormatter(JSONFormatter())
     else:
         handler.setFormatter(HumanReadableFormatter(use_colors=False))
-    
+
     return handler
 
 
 # ============================================================================
 # Configuration
 # ============================================================================
+
 
 def setup_logging(
     level: str = "INFO",
@@ -219,7 +221,7 @@ def setup_logging(
 ):
     """
     Set up logging configuration.
-    
+
     Args:
         level: Root log level
         log_file: Optional log file path
@@ -232,10 +234,10 @@ def setup_logging(
     # Get root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, level.upper(), logging.INFO))
-    
+
     # Clear existing handlers
     root_logger.handlers.clear()
-    
+
     # Console handler
     console_handler = logging.StreamHandler(sys.stdout)
     if json_format:
@@ -243,7 +245,7 @@ def setup_logging(
     else:
         console_handler.setFormatter(HumanReadableFormatter())
     root_logger.addHandler(console_handler)
-    
+
     # File handler if specified
     if log_file:
         if log_rotation:
@@ -259,15 +261,15 @@ def setup_logging(
                 file_handler.setFormatter(JSONFormatter())
             else:
                 file_handler.setFormatter(HumanReadableFormatter(use_colors=False))
-        
+
         root_logger.addHandler(file_handler)
-    
+
     # Set per-module levels
     if module_levels:
         for module, module_level in module_levels.items():
             module_logger = logging.getLogger(module)
             module_logger.setLevel(getattr(logging, module_level.upper(), logging.INFO))
-    
+
     # Configure LatentGate modules
     latentgate_modules = [
         "latent_gate.pipeline",
@@ -279,7 +281,7 @@ def setup_logging(
         "latent_gate.video",
         "latent_gate.cost",
     ]
-    
+
     for module in latentgate_modules:
         if module not in (module_levels or {}):
             logging.getLogger(module).setLevel(getattr(logging, level.upper(), logging.INFO))
@@ -288,7 +290,7 @@ def setup_logging(
 def setup_from_env():
     """
     Set up logging from environment variables.
-    
+
     Environment variables:
         LATENTGATE_LOG_LEVEL: Root log level
         LATENTGATE_LOG_FILE: Log file path
@@ -299,7 +301,7 @@ def setup_from_env():
     log_file = os.getenv("LATENTGATE_LOG_FILE")
     json_format = os.getenv("LATENTGATE_LOG_JSON", "").lower() in ("true", "1", "yes")
     log_rotation = os.getenv("LATENTGATE_LOG_ROTATION", "").lower() in ("true", "1", "yes")
-    
+
     setup_logging(
         level=level,
         log_file=log_file,
@@ -312,17 +314,18 @@ def setup_from_env():
 # Performance Logging
 # ============================================================================
 
+
 class PerformanceLogger:
     """
     Context manager for logging performance metrics.
-    
+
     Usage:
         with PerformanceLogger("image_processing") as perf:
             # Do work
             perf.tokens = 150
             perf.cost = 0.001
     """
-    
+
     def __init__(self, operation: str, logger_name: str = "latent_gate"):
         self.operation = operation
         self.logger = logging.getLogger(logger_name)
@@ -330,26 +333,14 @@ class PerformanceLogger:
         self.cost: Optional[float] = None
         self.start_time: float = 0
         self.duration_ms: float = 0
-    
+
     def __enter__(self):
         self.start_time = time.time()
         return self
-    
+
     def __exit__(self, *args):
-        import time
         self.duration_ms = (time.time() - self.start_time) * 1000
-        
-        extra = {
-            "duration_ms": self.duration_ms,
-            "operation": self.operation,
-        }
-        
-        if self.tokens is not None:
-            extra["tokens"] = self.tokens
-        
-        if self.cost is not None:
-            extra["cost"] = self.cost
-        
+
         # Create log record with extra data
         record = self.logger.makeRecord(
             name=self.logger.name,
@@ -360,21 +351,21 @@ class PerformanceLogger:
             args=(),
             exc_info=None,
         )
-        record.extra_data = extra
         record.duration_ms = self.duration_ms
-        
+
         if self.tokens is not None:
             record.tokens = self.tokens
-        
+
         if self.cost is not None:
             record.cost = self.cost
-        
+
         self.logger.handle(record)
 
 
 # ============================================================================
 # Convenience Functions
 # ============================================================================
+
 
 def get_logger(name: str) -> logging.Logger:
     """Get a logger instance."""

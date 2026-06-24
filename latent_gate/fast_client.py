@@ -17,7 +17,6 @@ from urllib3.util.retry import Retry
 
 from latent_gate.config import PipelineConfig
 
-
 logger = logging.getLogger("latent_gate.client")
 
 
@@ -92,15 +91,16 @@ class FastClient:
         for model in models_to_load:
             try:
                 logger.info(f"Preloading model: {model}")
-                self._ollama_session.post(
+                resp = self._ollama_session.post(
                     f"{self.config.ollama_base_url}/api/generate",
                     json={
                         "model": model,
                         "prompt": "",
-                        "keep_alive": "10m",   # Keep in memory for 10 min
+                        "keep_alive": "10m",  # Keep in memory for 10 min
                     },
                     timeout=60,
                 )
+                resp.raise_for_status()
             except Exception as e:
                 logger.warning(f"Failed to preload {model}: {e}")
 
@@ -126,20 +126,18 @@ class FastClient:
             "model": model,
             "prompt": prompt,
             "stream": False,
-            "keep_alive": "10m",            # Keep model loaded in GPU
+            "keep_alive": "10m",  # Keep model loaded in GPU
             "options": {
                 "temperature": self.config.temperature,
                 "num_predict": max_tokens,
-                "num_ctx": 2048,             # Smaller context = faster
+                "num_ctx": 2048,  # Smaller context = faster
             },
         }
         if images:
             payload["images"] = images
 
         try:
-            resp = self._ollama_session.post(
-                url, json=payload, timeout=self.config.request_timeout
-            )
+            resp = self._ollama_session.post(url, json=payload, timeout=self.config.request_timeout)
             resp.raise_for_status()
             return resp.json().get("response", "")
 
@@ -148,6 +146,11 @@ class FastClient:
                 "Cannot connect to Ollama. Make sure it's running:\n"
                 "  Start:  ollama serve\n"
                 "  Check:  curl http://localhost:11434/api/tags"
+            )
+        except requests.exceptions.Timeout:
+            raise TimeoutError(
+                f"Ollama request timed out after {self.config.request_timeout}s. "
+                "The model may be loading or the request is too large."
             )
 
     # ----------------------------------------------------------------

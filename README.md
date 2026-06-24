@@ -13,8 +13,13 @@
 [![Ollama](https://img.shields.io/badge/Ollama-local%20LLM-black.svg)](https://ollama.com)
 [![MCP](https://img.shields.io/badge/MCP-supported-purple.svg)](https://modelcontextprotocol.io)
 [![Tests](https://img.shields.io/badge/tests-62%20passed-brightgreen.svg)](tests/)
+[![Codecov](https://img.shields.io/codecov/c/github/KathanModh259/latent-gate?logo=codecov&token=YOUR_TOKEN)](https://codecov.io/gh/KathanModh259/latent-gate)
+[![Downloads](https://img.shields.io/pypi/dm/latent-gate?logo=pypi)](https://pypi.org/project/latent-gate/)
+[![Discord](https://img.shields.io/discord/YOUR_SERVER_ID?logo=discord&label=Discord)](https://discord.gg/your-invite)
+[![Awesome](https://awesome.re/badge.svg)](https://awesome.re)
+[![Product Hunt](https://img.shields.io/badge/Product%20Hunt-Featured-orange)](https://www.producthunt.com/posts/latent-gate)
 
-[**Quick Start**](#quick-start) | [**Python API**](#python-api) | [**REST API**](#rest-api) | [**AI Tool Integrations**](#ai-coding-tool-integration-mcp) | [**Benchmarks**](#cost-benchmarks) | [**Contributing**](#contributing)
+[**Quick Start**](#quick-start) | [**Python API**](#python-api) | [**REST API**](#rest-api) | [**AI Tool Integrations**](#ai-coding-tool-integration-mcp) | [**Benchmarks**](#cost-benchmarks) | [**Contributing**](#contributing) | [**Community**](#community)
 
 </div>
 
@@ -41,7 +46,7 @@ LatentGate:   Image -> Local Ollama (FREE) -> Cloud LLM (200 tokens) -> Answer
 | **Selective Decoding** | For video, only call API when scene changes (~2.85x fewer calls) with cosine similarity |
 | **Text Compression** | Long prompts, conversations, RAG docs compressed locally |
 | **Speed Optimized** | Connection pooling, model preloading, parallel processing |
-| **Multi-Provider** | OpenAI, Anthropic, Google, Ollama, or any OpenAI-compatible endpoint |
+| **Multi-Provider** | OpenAI, Anthropic, Google, Groq, DeepSeek, Together, Azure, AWS Bedrock, Ollama, or any OpenAI-compatible endpoint |
 | **REST API** | FastAPI server for web application integration |
 | **Video Processing** | Direct video file input with automatic frame extraction |
 | **Cost Tracking** | Persistent cost tracking with SQLite analytics and exportable reports |
@@ -74,6 +79,12 @@ pip install latent-gate[video]
 
 # With embedding-based similarity (more accurate selective decoding)
 pip install latent-gate[embeddings]
+
+# With LangChain integration
+pip install latent-gate[langchain]
+
+# With AWS Bedrock support
+pip install latent-gate[bedrock]
 
 # With all features
 pip install latent-gate[all]
@@ -567,6 +578,15 @@ latent-gate/
 ├── pyproject.toml
 └── requirements.txt
 ```
+
+---
+
+## Community
+
+- [**Discord**](https://discord.gg/your-invite) — Ask questions, share projects, get help
+- [**GitHub Discussions**](https://github.com/KathanModh259/latent-gate/discussions) — Feature requests, Q&A, showcases
+- [**Twitter/X**](https://x.com/your-handle) — Follow for updates and tips
+- [**Awesome Lists**](#) — Found in awesome-mcp, awesome-ollama, awesome-local-ai
 
 ---
 

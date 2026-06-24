@@ -15,7 +15,6 @@ import logging
 from typing import Optional, Dict, Tuple
 from dataclasses import dataclass
 
-
 logger = logging.getLogger("latent_gate.multilang")
 
 
@@ -64,9 +63,11 @@ LANGUAGE_CODES = {
 # Language Detection
 # ============================================================================
 
+
 @dataclass
 class LanguageInfo:
     """Information about detected language."""
+
     code: str
     name: str
     confidence: float
@@ -76,21 +77,21 @@ class LanguageInfo:
 def detect_language(text: str) -> LanguageInfo:
     """
     Detect the language of input text.
-    
+
     Args:
         text: Input text to analyze
-        
+
     Returns:
         LanguageInfo with detected language details
     """
     # Try using langdetect if available
     try:
         from langdetect import detect, detect_langs
-        
+
         lang_code = detect(text)
         probs = detect_langs(text)
         confidence = probs[0].prob if probs else 0.5
-        
+
         return LanguageInfo(
             code=lang_code,
             name=LANGUAGE_CODES.get(lang_code, lang_code),
@@ -99,7 +100,7 @@ def detect_language(text: str) -> LanguageInfo:
         )
     except ImportError:
         pass
-    
+
     # Fallback: simple heuristic-based detection
     return _heuristic_detection(text)
 
@@ -107,53 +108,138 @@ def detect_language(text: str) -> LanguageInfo:
 def _heuristic_detection(text: str) -> LanguageInfo:
     """
     Simple heuristic-based language detection.
-    
+
     This is a fallback when langdetect is not installed.
     """
     text_lower = text.lower()
-    
+
     # Common English words
-    english_words = {"the", "is", "are", "was", "were", "have", "has", "had", "be", "been",
-                     "do", "does", "did", "will", "would", "could", "should", "may", "might",
-                     "can", "shall", "must", "need", "dare", "ought", "used"}
-    
+    english_words = {
+        "the",
+        "is",
+        "are",
+        "was",
+        "were",
+        "have",
+        "has",
+        "had",
+        "be",
+        "been",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "can",
+        "shall",
+        "must",
+        "need",
+        "dare",
+        "ought",
+        "used",
+    }
+
     # Common Spanish words
-    spanish_words = {"el", "la", "los", "las", "un", "una", "es", "son", "está", "están",
-                     "de", "del", "en", "con", "por", "para", "que", "como", "pero", "más"}
-    
+    spanish_words = {
+        "el",
+        "la",
+        "los",
+        "las",
+        "un",
+        "una",
+        "es",
+        "son",
+        "está",
+        "están",
+        "de",
+        "del",
+        "en",
+        "con",
+        "por",
+        "para",
+        "que",
+        "como",
+        "pero",
+        "más",
+    }
+
     # Common French words
-    french_words = {"le", "la", "les", "un", "une", "est", "sont", "été", "être", "avoir",
-                    "de", "du", "des", "en", "dans", "pour", "par", "sur", "avec", "que"}
-    
+    french_words = {
+        "le",
+        "la",
+        "les",
+        "un",
+        "une",
+        "est",
+        "sont",
+        "été",
+        "être",
+        "avoir",
+        "de",
+        "du",
+        "des",
+        "en",
+        "dans",
+        "pour",
+        "par",
+        "sur",
+        "avec",
+        "que",
+    }
+
     # Common German words
-    german_words = {"der", "die", "das", "ein", "eine", "ist", "sind", "war", "haben", "sein",
-                    "von", "zu", "in", "mit", "auf", "für", "an", "nach", "bei", "über"}
-    
+    german_words = {
+        "der",
+        "die",
+        "das",
+        "ein",
+        "eine",
+        "ist",
+        "sind",
+        "war",
+        "haben",
+        "sein",
+        "von",
+        "zu",
+        "in",
+        "mit",
+        "auf",
+        "für",
+        "an",
+        "nach",
+        "bei",
+        "über",
+    }
+
     # Common Chinese characters (simplified)
     chinese_chars = set("的一是不了人我在有他这中大来上个国到说们为子和你地出会也时要就可以")
-    
+
     # Common Japanese hiragana/katakana
     japanese_chars = set("あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめも")
-    
+
     # Common Korean characters
     korean_chars = set("ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ")
-    
+
     # Common Arabic characters
     arabic_chars = set("ابتثجحخدذرزسشصضطظعغفقكلمنهوي")
-    
+
     # Common Hindi characters (Devanagari)
     hindi_chars = set("अआइईउऊएऐओऔकखगघङचछजझञटठडढणतथदधनपफबभमयरलवशषसह")
-    
+
     # Count matches
     words = set(text_lower.split())
-    
+
     scores = {
         "en": len(words & english_words),
         "es": len(words & spanish_words),
         "fr": len(words & french_words),
         "de": len(words & german_words),
     }
-    
+
     # Check character-based languages
     char_counts = {
         "zh": sum(1 for c in text if c in chinese_chars),
@@ -162,16 +248,16 @@ def _heuristic_detection(text: str) -> LanguageInfo:
         "ar": sum(1 for c in text if c in arabic_chars),
         "hi": sum(1 for c in text if c in hindi_chars),
     }
-    
+
     # Find best match
     all_scores = {**scores, **char_counts}
     best_lang = max(all_scores, key=all_scores.get)
     best_score = all_scores[best_lang]
-    
+
     # Calculate confidence
     total = sum(all_scores.values())
     confidence = best_score / max(total, 1) if total > 0 else 0.5
-    
+
     return LanguageInfo(
         code=best_lang,
         name=LANGUAGE_CODES.get(best_lang, best_lang),
@@ -184,6 +270,7 @@ def _heuristic_detection(text: str) -> LanguageInfo:
 # Translation
 # ============================================================================
 
+
 def translate_to_english(
     text: str,
     source_lang: str,
@@ -191,43 +278,43 @@ def translate_to_english(
 ) -> str:
     """
     Translate text to English for processing.
-    
+
     Args:
         text: Text to translate
         source_lang: Source language code
         config: Optional PipelineConfig for Ollama settings
-        
+
     Returns:
         Translated text in English
     """
     if source_lang == "en":
         return text
-    
+
     # Try using Ollama for translation
     try:
         from latent_gate.config import PipelineConfig
         from latent_gate.fast_client import FastClient
-        
+
         if config is None:
             config = PipelineConfig()
-        
+
         client = FastClient(config)
-        
+
         prompt = f"""Translate the following text from {LANGUAGE_CODES.get(source_lang, source_lang)} to English. 
 Preserve the original meaning and context. Return ONLY the translation, no explanations.
 
 Text to translate:
 {text[:2000]}"""
-        
+
         translation = client.ollama_generate(
             model=config.predictor_model,
             prompt=prompt,
             max_tokens=1000,
         )
-        
+
         client.close()
         return translation.strip()
-        
+
     except Exception as e:
         logger.warning(f"Translation failed: {e}")
         return text
@@ -272,11 +359,11 @@ LANGUAGE_PROMPTS = {
 def get_language_prompt(language_code: str, prompt_type: str = "compress") -> Optional[str]:
     """
     Get a language-specific prompt.
-    
+
     Args:
         language_code: Language code (e.g., "en", "es", "zh")
         prompt_type: Prompt type ("compress" or "summarize")
-        
+
     Returns:
         Language-specific prompt or None
     """
@@ -288,69 +375,74 @@ def get_language_prompt(language_code: str, prompt_type: str = "compress") -> Op
 # Multi-Language Text Processor
 # ============================================================================
 
+
 class MultiLanguageProcessor:
     """
     Text processor with multi-language support.
-    
+
     Automatically detects language and processes text accordingly.
-    
+
     Usage:
         processor = MultiLanguageProcessor(config)
         result = processor.process("Texto en español")
     """
-    
+
     def __init__(self, config=None, translate_to_en: bool = True):
         """
         Initialize multi-language processor.
-        
+
         Args:
             config: Optional PipelineConfig
             translate_to_en: Whether to translate non-English text to English
         """
         from latent_gate.config import PipelineConfig
+
         self.config = config or PipelineConfig()
         self.translate_to_en = translate_to_en
-    
+
     def process(self, text: str, **kwargs) -> Tuple[str, LanguageInfo]:
         """
         Process text with language detection and optional translation.
-        
+
         Args:
             text: Input text
             **kwargs: Additional arguments for processing
-            
+
         Returns:
             Tuple of (processed_text, language_info)
         """
         # Detect language
         lang_info = detect_language(text)
-        logger.info(f"Detected language: {lang_info.name} ({lang_info.code}) "
-                    f"with {lang_info.confidence:.2%} confidence")
-        
+        logger.info(
+            f"Detected language: {lang_info.name} ({lang_info.code}) "
+            f"with {lang_info.confidence:.2%} confidence"
+        )
+
         # Translate if needed
         if not lang_info.is_english and self.translate_to_en:
             logger.info(f"Translating from {lang_info.name} to English")
             text = translate_to_english(text, lang_info.code, self.config)
-        
+
         return text, lang_info
-    
+
     def get_prompt(self, language_code: str, prompt_type: str = "compress") -> str:
         """
         Get appropriate prompt for the language.
-        
+
         Args:
             language_code: Language code
             prompt_type: Prompt type
-            
+
         Returns:
             Prompt string
         """
         prompt = get_language_prompt(language_code, prompt_type)
         if prompt:
             return prompt
-        
+
         # Fallback to English prompt
         from latent_gate.text_processor import TextProcessor
+
         return TextProcessor.COMPRESS_PROMPT
 
 
@@ -358,13 +450,14 @@ class MultiLanguageProcessor:
 # Convenience Functions
 # ============================================================================
 
+
 def detect_text_language(text: str) -> str:
     """
     Detect the language of input text.
-    
+
     Args:
         text: Input text
-        
+
     Returns:
         Language code (e.g., "en", "es", "zh")
     """
@@ -374,10 +467,10 @@ def detect_text_language(text: str) -> str:
 def is_english(text: str) -> bool:
     """
     Check if text is in English.
-    
+
     Args:
         text: Input text
-        
+
     Returns:
         True if English, False otherwise
     """
@@ -387,7 +480,7 @@ def is_english(text: str) -> bool:
 def get_supported_languages() -> Dict[str, str]:
     """
     Get list of supported languages.
-    
+
     Returns:
         Dictionary mapping language codes to names
     """

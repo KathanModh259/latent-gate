@@ -11,6 +11,8 @@ Make your favorite AI tools automatically save tokens with LatentGate.
 | [🔵 Cursor](cursor/) | Cursor IDE (.cursorrules + MCP) | 1 min |
 | [🟢 Continue.dev](continue_dev/) | Continue VS Code extension | 2 min |
 | [🟠 OpenAI Functions](openai_functions/) | Custom OpenAI/Claude/Gemini agents | 5 min |
+| [🦜 LangChain](langchain/) | LangChain chains, agents, and tools | 3 min |
+| [🦙 LlamaIndex](llamaindex/) | LlamaIndex query engines and retrievers | 3 min |
 
 ## Which One Should I Use?
 

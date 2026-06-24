@@ -1,0 +1,60 @@
+# Default values for latent-gate
+replicaCount: 1
+
+image:
+  repository: latent-gate
+  pullPolicy: IfNotPresent
+  tag: "1.0.0"
+
+ollama:
+  image: ollama/ollama
+  tag: "latest"
+  service:
+    port: 11434
+  models:
+    vision: "llava:7b"
+    predictor: "llama3:8b"
+
+latentgate:
+  port: 8000
+  remoteProvider: "openai"
+  remoteModel: "gpt-4o-mini"
+  visionModel: "llava:7b"
+  predictorModel: "llama3:8b"
+  selectiveDecoding: true
+  similarityThreshold: 0.85
+  enableCaching: true
+  temperature: 0.3
+  logLevel: "INFO"
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: latent-gate.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

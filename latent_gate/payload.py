@@ -28,7 +28,7 @@ class SemanticPayload:
     actions_activities: list = field(default_factory=list)
     text_in_image: str = ""
     dominant_colors: list = field(default_factory=list)
-    scene_type: str = ""                 # indoor/outdoor/document/chart/etc.
+    scene_type: str = ""  # indoor/outdoor/document/chart/etc.
     confidence: float = 0.0
 
     # ---- Metadata ----
@@ -79,11 +79,7 @@ class SemanticPayload:
 
     def is_empty(self) -> bool:
         """Check if the payload has any meaningful content."""
-        return not (
-            self.scene_description
-            or self.objects_detected
-            or self.text_in_image
-        )
+        return not (self.scene_description or self.objects_detected or self.text_in_image)
 
     def __repr__(self) -> str:
         obj_count = len(self.objects_detected)

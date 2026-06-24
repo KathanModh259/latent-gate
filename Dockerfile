@@ -2,7 +2,7 @@
 # Multi-stage build for smaller image size
 
 # Stage 1: Build stage
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
@@ -23,6 +23,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy installed packages from builder
 COPY --from=builder /root/.local /root/.local
 
@@ -30,24 +35,32 @@ COPY --from=builder /root/.local /root/.local
 COPY latent_gate/ ./latent_gate/
 COPY pyproject.toml README.md LICENSE ./
 
-# Install the package with API dependencies
-RUN pip install --no-cache-dir --user ".[api]"
-
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash appuser
-USER appuser
+
+# Make local packages accessible to appuser
+RUN cp -r /root/.local /home/appuser/.local && \
+    chown -R appuser:appuser /home/appuser/.local
 
 # Set environment variables
 ENV PATH=/home/appuser/.local/bin:$PATH
 ENV PYTHONUNBUFFERED=1
 ENV LATENTGATE_LOG_LEVEL=INFO
+ENV LATENTGATE_REMOTE_PROVIDER=ollama
+ENV LATENTGATE_REMOTE_MODEL=llama3:8b
+ENV OLLAMA_BASE_URL=http://ollama:11434
+
+USER appuser
+
+# Create cache directory
+RUN mkdir -p /home/appuser/.latentgate_cache
 
 # Expose API port
 EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # Default command: run API server
 CMD ["latent-gate-api"]

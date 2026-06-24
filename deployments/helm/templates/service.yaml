@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "latent-gate.fullname" . }}-ollama-pvc
+  labels:
+    {{- include "latent-gate.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "latent-gate.fullname" . }}
+  labels:
+    {{- include "latent-gate.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "latent-gate.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "latent-gate.fullname" . }}-ollama
+  labels:
+    {{- include "latent-gate.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.ollama.service.port }}
+      targetPort: ollama
+      protocol: TCP
+      name: ollama
+  selector:
+    {{- include "latent-gate.selectorLabels" . | nindent 4 }}

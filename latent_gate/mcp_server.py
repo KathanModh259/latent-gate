@@ -27,12 +27,10 @@ try:
     from mcp.server.stdio import stdio_server
     import mcp.types as types
 except ImportError as e:
-    raise ImportError(
-        "MCP package not installed. Install with: pip install mcp"
-    ) from e
+    raise ImportError("MCP package not installed. Install with: pip install mcp") from e
 
 from latent_gate import LatentGatePipeline, PipelineConfig
-
+from typing import Optional
 
 logger = logging.getLogger("latent_gate_mcp")
 logging.basicConfig(level=logging.INFO)
@@ -42,7 +40,7 @@ logging.basicConfig(level=logging.INFO)
 # Lazy Pipeline Initialization
 # ============================================================================
 
-_pipeline: LatentGatePipeline = None
+_pipeline: Optional[LatentGatePipeline] = None
 
 
 def get_pipeline() -> LatentGatePipeline:
@@ -119,10 +117,7 @@ async def list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="compress_conversation",
-            description=(
-                "Compress a multi-turn conversation history into a "
-                "compact summary."
-            ),
+            description=("Compress a multi-turn conversation history into a " "compact summary."),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -179,9 +174,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 "compact_payload": result["compact_prompt"],
                 "tokens_estimated": result["tokens_estimated"],
                 "tokens_saved": 1200 - result["tokens_estimated"],
-                "savings_percent": round(
-                    (1 - result["tokens_estimated"] / 1200) * 100, 1
-                ),
+                "savings_percent": round((1 - result["tokens_estimated"] / 1200) * 100, 1),
                 "extracted_data": result["payload"],
                 "answer": result["answer"],
             }
@@ -241,13 +234,12 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     except FileNotFoundError as e:
         return [types.TextContent(type="text", text=f"Error: File not found - {e}")]
     except ConnectionError as e:
-        return [types.TextContent(
-            type="text",
-            text=(
-                f"Error: Ollama not running. Start with 'ollama serve'. "
-                f"Details: {e}"
+        return [
+            types.TextContent(
+                type="text",
+                text=(f"Error: Ollama not running. Start with 'ollama serve'. " f"Details: {e}"),
             )
-        )]
+        ]
     except Exception as e:
         logger.exception("Tool call failed")
         return [types.TextContent(type="text", text=f"Error: {e}")]
@@ -256,6 +248,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 # ============================================================================
 # Main
 # ============================================================================
+
 
 async def main():
     """Run the MCP server over stdio."""

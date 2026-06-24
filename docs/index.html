@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LatentGate — Process Locally. Send Smart. Pay Less.</title>
+    <meta name="description" content="Local-first vision-language pipeline inspired by VL-JEPA. Compress images, text, conversations locally via Ollama before sending to cloud LLMs. ~80% token savings.">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+        .hero { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 80px 20px; text-align: center; }
+        .hero h1 { font-size: 3em; margin-bottom: 20px; }
+        .hero p { font-size: 1.2em; max-width: 600px; margin: 0 auto 30px; opacity: 0.9; }
+        .hero .badge { display: inline-block; background: rgba(255,255,255,0.2); padding: 8px 16px; border-radius: 20px; margin: 5px; font-size: 0.9em; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 40px 20px; }
+        .section { margin-bottom: 60px; }
+        .section h2 { font-size: 2em; margin-bottom: 20px; color: #667eea; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px; }
+        .card { background: white; border-radius: 12px; padding: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .card h3 { margin-bottom: 15px; color: #333; }
+        .code-block { background: #1e1e1e; color: #d4d4d4; padding: 20px; border-radius: 8px; overflow-x: auto; margin: 15px 0; }
+        .code-block code { font-family: 'Fira Code', monospace; font-size: 0.9em; }
+        .btn { display: inline-block; background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin: 5px; transition: background 0.3s; }
+        .btn:hover { background: #5a6fd6; }
+        .btn-outline { background: transparent; border: 2px solid #667eea; color: #667eea; }
+        .btn-outline:hover { background: #667eea; color: white; }
+        .stats { display: flex; justify-content: center; gap: 40px; margin: 40px 0; }
+        .stat { text-align: center; }
+        .stat .number { font-size: 2.5em; font-weight: bold; color: #667eea; }
+        .stat .label { color: #666; }
+        footer { background: #333; color: white; text-align: center; padding: 40px 20px; }
+        footer a { color: #667eea; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="hero">
+        <h1>LatentGate</h1>
+        <p>Process Locally. Send Smart. Pay Less.</p>
+        <p>A VL-JEPA-inspired pipeline that compresses images, text, conversations, and RAG documents locally via Ollama, then sends only compact semantic payloads to any LLM API.</p>
+        <div>
+            <span class="badge">Python 3.10+</span>
+            <span class="badge">MIT License</span>
+            <span class="badge">Ollama</span>
+            <span class="badge">MCP Support</span>
+        </div>
+        <div style="margin-top: 30px;">
+            <a href="#quickstart" class="btn">Get Started</a>
+            <a href="https://github.com/KathanModh259/latent-gate" class="btn btn-outline">GitHub</a>
+            <a href="https://pypi.org/project/latent-gate/" class="btn btn-outline">PyPI</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="stats">
+            <div class="stat">
+                <div class="number">~80%</div>
+                <div class="label">Token Savings</div>
+            </div>
+            <div class="stat">
+                <div class="number">62+</div>
+                <div class="label">Tests Passing</div>
+            </div>
+            <div class="stat">
+                <div class="number">9</div>
+                <div class="label">LLM Providers</div>
+            </div>
+            <div class="stat">
+                <div class="number">30+</div>
+                <div class="label">Languages</div>
+            </div>
+        </div>
+
+        <div class="section" id="quickstart">
+            <h2>Quick Start</h2>
+            <div class="code-block">
+                <code># Install<br>pip install latent-gate<br><br># Pull Ollama models<br>ollama pull llava:7b<br>ollama pull llama3:8b<br><br># Use it<br>python -m latent_gate photo.jpg "What is in this image?" --provider ollama</code>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Features</h2>
+            <div class="grid">
+                <div class="card">
+                    <h3>Local-First</h3>
+                    <p>Vision and text compression runs on Ollama (free, no API key needed). Keep your data on your machine.</p>
+                </div>
+                <div class="card">
+                    <h3>~80% Token Savings</h3>
+                    <p>Send ~200 tokens instead of ~1,200 for image queries. Massive cost reduction at scale.</p>
+                </div>
+                <div class="card">
+                    <h3>Multi-Provider</h3>
+                    <p>OpenAI, Anthropic, Google, Groq, DeepSeek, Together, Azure, AWS Bedrock, Ollama, or any OpenAI-compatible endpoint.</p>
+                </div>
+                <div class="card">
+                    <h3>MCP Server</h3>
+                    <p>Works with Claude Desktop, Cursor, Cline, Continue, Zed, and VS Code Copilot.</p>
+                </div>
+                <div class="card">
+                    <h3>Video Processing</h3>
+                    <p>Selective decoding for video streams — only call API when scene changes (~2.85x fewer calls).</p>
+                </div>
+                <div class="card">
+                    <h3>REST API</h3>
+                    <p>FastAPI server for web application integration with async support and streaming.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Supported Providers</h2>
+            <div class="grid">
+                <div class="card">
+                    <h3>Cloud Providers</h3>
+                    <p>OpenAI (GPT-4o, GPT-4o-mini), Anthropic (Claude), Google (Gemini), Groq, DeepSeek, Together AI</p>
+                </div>
+                <div class="card">
+                    <h3>Enterprise</h3>
+                    <p>Azure OpenAI, AWS Bedrock — for enterprise deployments with compliance requirements</p>
+                </div>
+                <div class="card">
+                    <h3>Local</h3>
+                    <p>Ollama (fully local, zero cost), any OpenAI-compatible endpoint for self-hosted LLMs</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Integrations</h2>
+            <div class="grid">
+                <div class="card">
+                    <h3>AI Coding Tools</h3>
+                    <p>Claude Desktop, Cursor, Cline, Continue.dev, Zed, VS Code Copilot via MCP</p>
+                </div>
+                <div class="card">
+                    <h3>AI Frameworks</h3>
+                    <p>LangChain, LlamaIndex — use LatentGate as a chain component or query engine</p>
+                </div>
+                <div class="card">
+                    <h3>API & CLI</h3>
+                    <p>REST API, command-line interface, Python SDK, Docker support</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Community</h2>
+            <div class="grid">
+                <div class="card">
+                    <h3>Get Help</h3>
+                    <p><a href="https://discord.gg/your-invite">Discord</a> — Ask questions, share projects<br>
+                    <a href="https://github.com/KathanModh259/latent-gate/discussions">GitHub Discussions</a> — Feature requests, Q&A</p>
+                </div>
+                <div class="card">
+                    <h3>Contribute</h3>
+                    <p>We welcome contributions! Check out <a href="https://github.com/KathanModh259/latent-gate/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> to get started.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>Built by <a href="https://github.com/KathanModh259">Kathan Modh</a></p>
+        <p style="margin-top: 10px; opacity: 0.7;">Inspired by <a href="https://arxiv.org/abs/2512.10942">VL-JEPA</a> (Meta FAIR, 2025)</p>
+        <p style="margin-top: 10px; opacity: 0.7;">MIT License</p>
+    </footer>
+</body>
+</html>

@@ -25,7 +25,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[all]"
-          pip install pytest black ruff
+          pip install pytest pytest-cov black ruff
 
       - name: Lint with ruff
         run: ruff check latent_gate/
@@ -33,5 +33,13 @@ jobs:
       - name: Format check with black
         run: black --check latent_gate/
 
-      - name: Run tests
-        run: pytest tests/ -v
+      - name: Run tests with coverage
+        run: pytest tests/ -v --cov=latent_gate --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false

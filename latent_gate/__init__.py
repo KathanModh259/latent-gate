@@ -43,10 +43,10 @@ Usage:
 
         # Universal (auto-detect)
         result = pipeline.query_universal(text="...", image="photo.jpg")
-        
+
     # Video processing
     from latent_gate import VideoProcessor, VideoConfig
-    
+
     video_config = VideoConfig(fps=1.0, max_frames=50)
     with VideoProcessor(config, video_config) as processor:
         result = processor.process_video("video.mp4", "Describe the action")
@@ -62,7 +62,13 @@ from latent_gate.remote_decoder import (
     RemoteDecoder,
     OpenAIDecoder,
     AnthropicDecoder,
+    GoogleDecoder,
     OllamaRemoteDecoder,
+    GroqDecoder,
+    DeepSeekDecoder,
+    TogetherDecoder,
+    AzureOpenAIDecoder,
+    BedrockDecoder,
 )
 from latent_gate.cache import PayloadCache
 from latent_gate.pipeline import LatentGatePipeline
@@ -104,7 +110,13 @@ __all__ = [
     "RemoteDecoder",
     "OpenAIDecoder",
     "AnthropicDecoder",
+    "GoogleDecoder",
     "OllamaRemoteDecoder",
+    "GroqDecoder",
+    "DeepSeekDecoder",
+    "TogetherDecoder",
+    "AzureOpenAIDecoder",
+    "BedrockDecoder",
     "PayloadCache",
     "VideoProcessor",
     "VideoConfig",

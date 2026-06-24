@@ -13,13 +13,11 @@ import base64
 import time
 import logging
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 
 from latent_gate.config import PipelineConfig
 from latent_gate.payload import SemanticPayload
 from latent_gate.cache import PayloadCache
 from latent_gate.fast_client import FastClient
-
 
 logger = logging.getLogger("latent_gate.local")
 
@@ -46,7 +44,6 @@ Format: SCENE:<type>|DESC:<1 line>|OBJECTS:<list>|ACTIONS:<list>|TEXT:<text>"""
         self.config = config
         self.client = client or FastClient(config)
         self.cache = PayloadCache(config) if config.enable_caching else None
-        self._executor = ThreadPoolExecutor(max_workers=2)
 
     # ----------------------------------------------------------------
     # Image Handling
@@ -137,9 +134,7 @@ Format: SCENE:<type>|DESC:<1 line>|OBJECTS:<list>|ACTIONS:<list>|TEXT:<text>"""
             if not json_extracted:
                 # --- Slow path: Use LLM to restructure ---
                 logger.warning(f"JSON parse failed ({e}), using Predictor LLM (slow path)")
-                prompt = self.RESTRUCTURE_PROMPT.format(
-                    raw_text=raw_extraction[:500]
-                )
+                prompt = self.RESTRUCTURE_PROMPT.format(raw_text=raw_extraction[:500])
                 structured = self.client.ollama_generate(
                     model=self.config.predictor_model,
                     prompt=prompt,
@@ -207,7 +202,7 @@ Format: SCENE:<type>|DESC:<1 line>|OBJECTS:<list>|ACTIONS:<list>|TEXT:<text>"""
         start = text.find("{")
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
-            return text[start:end + 1]
+            return text[start : end + 1]
         return ""
 
     @staticmethod

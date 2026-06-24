@@ -69,7 +69,7 @@ class TestSemanticPayload:
         }
         p = SemanticPayload.from_dict(d)
         assert p.scene_type == "indoor"
-        assert not hasattr(p, "unknown_field") or True  # No crash
+        assert not hasattr(p, "unknown_field")
 
     def test_repr(self):
         p = SemanticPayload(scene_type="indoor", objects_detected=["a", "b"])

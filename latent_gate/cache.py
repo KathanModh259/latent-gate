@@ -14,7 +14,6 @@ from typing import Optional
 from latent_gate.config import PipelineConfig
 from latent_gate.payload import SemanticPayload
 
-
 logger = logging.getLogger("latent_gate.cache")
 
 
@@ -35,9 +34,11 @@ class PayloadCache:
 
     def _get_cache_key(self, image_path: str) -> str:
         """Generate a cache key from the image file's content hash."""
+        hasher = hashlib.md5()
         with open(image_path, "rb") as f:
-            content_hash = hashlib.md5(f.read()).hexdigest()
-        return content_hash
+            for chunk in iter(lambda: f.read(8192), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
 
     def _get_cache_path(self, cache_key: str) -> Path:
         """Get the file path for a cache entry."""
@@ -73,7 +74,7 @@ class PayloadCache:
                 self._memory_cache[cache_key] = payload  # Promote to memory
                 logger.debug(f"Disk cache hit: {cache_key[:8]}...")
                 return payload
-            except (json.JSONDecodeError, KeyError) as e:
+            except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as e:
                 logger.warning(f"Corrupt cache entry {cache_key[:8]}: {e}")
                 cache_path.unlink(missing_ok=True)
 
@@ -112,4 +113,4 @@ class PayloadCache:
     @property
     def size(self) -> int:
         """Number of entries in disk cache."""
-        return len(list(self.cache_dir.glob("*.json")))
+        return sum(1 for _ in self.cache_dir.glob("*.json"))

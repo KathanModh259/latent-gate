@@ -77,6 +77,12 @@ config = [
     "tomli>=2.0.0; python_version < '3.11'",
     "tomli_w>=1.0.0",
 ]
+langchain = [
+    "langchain-core>=0.2.0",
+]
+bedrock = [
+    "boto3>=1.34.0",
+]
 all = [
     "mcp>=0.9.0",
     "opencv-python>=4.9.0",
@@ -89,6 +95,8 @@ all = [
     "pyyaml>=6.0",
     "tomli>=2.0.0; python_version < '3.11'",
     "tomli_w>=1.0.0",
+    "langchain-core>=0.2.0",
+    "boto3>=1.34.0",
 ]
 
 [project.urls]

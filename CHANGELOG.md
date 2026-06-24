@@ -5,6 +5,37 @@ All notable changes to LatentGate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-06-23
+
+### Added
+
+- **LangChain Integration** — Use LatentGate as a LangChain LLM and Tool for chains, agents, and pipelines
+- **LlamaIndex Integration** — Use LatentGate as a LlamaIndex QueryEngine and Retriever
+- **Groq Provider** — Fast inference via Groq API (llama-3.1-8b-instant, mixtral-8x7b)
+- **DeepSeek Provider** — DeepSeek Chat and Coder models
+- **Together AI Provider** — Together AI inference (Llama-3, Mixtral)
+- **Azure OpenAI Provider** — Azure OpenAI deployments
+- **AWS Bedrock Provider** — AWS Bedrock models via boto3
+- **Offline-First Mode** — Full pipeline without cloud API (local Ollama answering)
+- **Adaptive Compression** — Dynamically adjust compression based on query complexity
+- **Semantic Deduplication** — Skip similar queries in batch processing
+- **Streaming Cost Estimation** — `estimate_cost()` method for real-time cost projections
+- **GitHub Pages Site** — Landing page with features, providers, and community links
+- **Codecov Integration** — Code coverage reporting in CI
+- **Community Section** — Discord, GitHub Discussions, Twitter links in README
+- **Helm Chart** — Kubernetes deployment with Ollama sidecar, autoscaling, and secrets management
+- **Homebrew Formula** — macOS installation via Homebrew
+- **Winget Manifest** — Windows installation via Windows Package Manager
+- **Awesome Lists** — Submission guide for awesome-ollama, awesome-mcp, awesome-local-ai, awesome-python, awesome-langchain, awesome-llamaindex
+- **Product Hunt Guide** — Launch preparation and strategy guide
+
+### Changed
+
+- Updated multi-provider support in README and features table
+- Added new optional dependencies: `langchain`, `bedrock`
+- Updated cost tracker with pricing for Groq, DeepSeek, Together, Azure, Bedrock
+- Added provider documentation to integrations README
+
 ## [1.0.0] - 2026-06-22
 
 ### Fixed

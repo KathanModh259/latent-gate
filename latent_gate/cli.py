@@ -36,7 +36,7 @@ def main():
             "Examples:\n"
             '  python -m latent_gate photo.jpg "What is this?"\n'
             '  python -m latent_gate --text "Write an essay about..." --provider openai\n'
-            '  python -m latent_gate --text-file long_prompt.txt --provider openai\n'
+            "  python -m latent_gate --text-file long_prompt.txt --provider openai\n"
             '  python -m latent_gate photo.jpg "Analyze" --text "Extra context..."\n'
         ),
     )
@@ -46,11 +46,20 @@ def main():
     parser.add_argument("question", nargs="?", default="", help="Question (optional)")
     parser.add_argument("--text", "-t", default="", help="Text prompt to compress and send")
     parser.add_argument("--text-file", "-tf", default="", help="Read text prompt from a file")
+    parser.add_argument(
+        "--compress-only",
+        action="store_true",
+        help="Compress prompt only (no cloud LLM call). Saves tokens.",
+    )
 
     # Provider settings
     parser.add_argument(
-        "--provider", default="ollama",
-        choices=["openai", "anthropic", "google", "ollama"],
+        "--provider",
+        default="ollama",
+        choices=[
+            "openai", "anthropic", "google", "ollama",
+            "groq", "deepseek", "together", "azure", "bedrock",
+        ],
         help="Remote LLM provider (default: ollama)",
     )
     parser.add_argument("--vision-model", default="llava:7b", help="Ollama vision model")
@@ -61,7 +70,8 @@ def main():
 
     # Compression settings
     parser.add_argument(
-        "--mode", default="auto",
+        "--mode",
+        default="auto",
         choices=["auto", "compress", "summarize", "condense", "code"],
         help="Text compression mode (default: auto-detect)",
     )
@@ -80,6 +90,11 @@ def main():
             "anthropic": "claude-sonnet-4-20250514",
             "google": "gemini-2.0-flash",
             "ollama": "llama3:8b",
+            "groq": "llama-3.3-70b-versatile",
+            "deepseek": "deepseek-chat",
+            "together": "meta-llama/Llama-3-70b-chat-hf",
+            "azure": "gpt-4o-mini",
+            "bedrock": "anthropic.claude-3-5-sonnet-20241022-v2:0",
         }
         args.remote_model = defaults.get(args.provider, "gpt-4o-mini")
 
@@ -114,21 +129,21 @@ def main():
     try:
         pipeline = LatentGatePipeline(config)
 
-        if args.image and text_input:
+        if args.compress_only and text_input:
+            # Compress-only mode: no cloud LLM call
+            result = pipeline.compress_prompt(text_input)
+            result["input_type"] = "compress_only"
+        elif args.image and text_input:
             # Universal: Image + Text
             result = pipeline.query_universal(
                 image=args.image, text=text_input, question=args.question
             )
         elif args.image:
             # Image only
-            result = pipeline.query(
-                args.image, args.question or "Describe this image."
-            )
+            result = pipeline.query(args.image, args.question or "Describe this image.")
         else:
             # Text only
-            result = pipeline.query_text(
-                text_input, question=args.question, mode=args.mode
-            )
+            result = pipeline.query_text(text_input, question=args.question, mode=args.mode)
 
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -146,12 +161,20 @@ def main():
     else:
         print(f"\n{'=' * 55}")
         print(f"  Mode:            {result.get('input_type', 'unknown')}")
-        print(f"  Answer:          {result['answer']}")
-        print(f"  Tokens sent:     ~{result['tokens_estimated']}")
-        if "original_tokens" in result:
-            print(f"  Original tokens: ~{result['original_tokens']}")
-            print(f"  Compression:     {result['compression_ratio']}")
-            print(f"  Tokens saved:    ~{result['tokens_saved']}")
+        if result.get("input_type") == "compress_only":
+            print(f"  Original:        {result['original_tokens']} tokens")
+            print(f"  Compressed:      {result['compressed_tokens']} tokens")
+            print(
+                f"  Saved:           ~{result['tokens_saved']} tokens ({result['compression_ratio']})"
+            )
+            print(f"\n  Compressed prompt:\n  {result['compressed_prompt']}")
+        else:
+            print(f"  Answer:          {result['answer']}")
+            print(f"  Tokens sent:     ~{result['tokens_estimated']}")
+            if "original_tokens" in result:
+                print(f"  Original tokens: ~{result['original_tokens']}")
+                print(f"  Compression:     {result['compression_ratio']}")
+                print(f"  Tokens saved:    ~{result['tokens_saved']}")
         print(f"{'=' * 55}")
 
 

@@ -18,14 +18,13 @@ from typing import Optional
 
 from latent_gate.payload import SemanticPayload
 
-
 logger = logging.getLogger("latent_gate.selective")
 
 # Try to import sentence-transformers for cosine similarity
 _SENTENCE_TRANSFORMERS_AVAILABLE = False
-_model = None
 try:
     from sentence_transformers import SentenceTransformer
+
     _SENTENCE_TRANSFORMERS_AVAILABLE = True
 except ImportError:
     pass
@@ -55,22 +54,22 @@ class SelectiveDecoder:
         self.previous_response: str = ""
         self.call_count: int = 0
         self.skip_count: int = 0
-        
+
         # Determine similarity method
         if use_embeddings is None:
             self.use_embeddings = _SENTENCE_TRANSFORMERS_AVAILABLE
         else:
             self.use_embeddings = use_embeddings and _SENTENCE_TRANSFORMERS_AVAILABLE
-        
+
         # Lazy-load the embedding model
-        self._embedding_model: Optional[SentenceTransformer] = None
-        
+        self._embedding_model = None
+
         if self.use_embeddings:
             logger.info("SelectiveDecoder: Using cosine similarity (sentence-transformers)")
         else:
             logger.info("SelectiveDecoder: Using Jaccard similarity (fallback)")
 
-    def _get_embedding_model(self) -> SentenceTransformer:
+    def _get_embedding_model(self):
         """Lazy-load the sentence-transformers model."""
         if self._embedding_model is None:
             logger.info("Loading sentence-transformers model (all-MiniLM-L6-v2)...")
@@ -94,9 +93,7 @@ class SelectiveDecoder:
             parts.append(f"text: {payload.text_in_image}")
         return " | ".join(parts) if parts else "empty scene"
 
-    def compute_similarity(
-        self, p1: SemanticPayload, p2: SemanticPayload
-    ) -> float:
+    def compute_similarity(self, p1: SemanticPayload, p2: SemanticPayload) -> float:
         """
         Compute semantic similarity between two payloads.
 
@@ -122,23 +119,23 @@ class SelectiveDecoder:
         """Compute cosine similarity using sentence-transformers embeddings."""
         try:
             model = self._get_embedding_model()
-            
+
             text1 = self._payload_to_text(p1)
             text2 = self._payload_to_text(p2)
-            
+
             embeddings = model.encode([text1, text2])
-            
+
             # Cosine similarity
             dot_product = sum(a * b for a, b in zip(embeddings[0], embeddings[1]))
             norm1 = sum(a * a for a in embeddings[0]) ** 0.5
             norm2 = sum(b * b for b in embeddings[1]) ** 0.5
-            
+
             if norm1 == 0 or norm2 == 0:
                 return 0.0
-            
+
             similarity = dot_product / (norm1 * norm2)
             return max(0.0, min(1.0, similarity))  # Clamp to [0, 1]
-            
+
         except Exception as e:
             logger.warning(f"Cosine similarity failed, falling back to Jaccard: {e}")
             return self._jaccard_similarity(p1, p2)
@@ -151,12 +148,7 @@ class SelectiveDecoder:
         sim_colors = self._jaccard(p1.dominant_colors, p2.dominant_colors)
 
         # Weighted average — objects and actions matter most
-        weighted = (
-            0.35 * sim_objects
-            + 0.35 * sim_actions
-            + 0.20 * sim_scene
-            + 0.10 * sim_colors
-        )
+        weighted = 0.35 * sim_objects + 0.35 * sim_actions + 0.20 * sim_scene + 0.10 * sim_colors
         return weighted
 
     def should_decode(self, current_payload: SemanticPayload) -> bool:
@@ -181,7 +173,9 @@ class SelectiveDecoder:
             logger.info(f"Selective skip — similarity {similarity:.3f} >= {self.threshold}")
             return False
         else:
-            logger.info(f"Semantic change detected — similarity {similarity:.3f} < {self.threshold}")
+            logger.info(
+                f"Semantic change detected — similarity {similarity:.3f} < {self.threshold}"
+            )
             return True
 
     def update(self, payload: SemanticPayload, response: str):

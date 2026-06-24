@@ -20,10 +20,7 @@ import time
 import logging
 from dataclasses import dataclass, field, asdict
 
-import requests
-
 from latent_gate.config import PipelineConfig
-
 
 logger = logging.getLogger("latent_gate.text")
 
@@ -31,6 +28,7 @@ logger = logging.getLogger("latent_gate.text")
 # ============================================================================
 # TEXT PAYLOAD — Compressed representation of text input
 # ============================================================================
+
 
 @dataclass
 class TextPayload:
@@ -42,15 +40,15 @@ class TextPayload:
     """
 
     # ---- Core Extracted Semantics ----
-    intent: str = ""                           # What the user wants (1 sentence)
-    key_entities: list = field(default_factory=list)    # Important names/values/concepts
-    constraints: list = field(default_factory=list)     # Requirements/conditions/rules
-    context_summary: str = ""                  # Compressed background/context
-    question_type: str = ""                    # factual/creative/analytical/code/etc.
-    output_format: str = ""                    # What format the user expects
-    tone: str = ""                             # formal/casual/technical/etc.
-    code_snippets: list = field(default_factory=list)   # Any code blocks (preserved as-is)
-    data_points: list = field(default_factory=list)     # Numbers, dates, values mentioned
+    intent: str = ""  # What the user wants (1 sentence)
+    key_entities: list = field(default_factory=list)  # Important names/values/concepts
+    constraints: list = field(default_factory=list)  # Requirements/conditions/rules
+    context_summary: str = ""  # Compressed background/context
+    question_type: str = ""  # factual/creative/analytical/code/etc.
+    output_format: str = ""  # What format the user expects
+    tone: str = ""  # formal/casual/technical/etc.
+    code_snippets: list = field(default_factory=list)  # Any code blocks (preserved as-is)
+    data_points: list = field(default_factory=list)  # Numbers, dates, values mentioned
 
     # ---- Metadata ----
     original_token_count: int = 0
@@ -113,6 +111,7 @@ class TextPayload:
 # ============================================================================
 # TEXT PROCESSOR — Local prompt compression
 # ============================================================================
+
 
 class TextProcessor:
     """
@@ -192,29 +191,52 @@ Return ONLY valid JSON:
   "code_snippets": ["extract each code block exactly as-is"]
 }}"""
 
-    def __init__(self, config: PipelineConfig):
+    COMPRESS_ONLY_PROMPT = """Rewrite the user's prompt to be as concise as possible while preserving the EXACT same intent, requirements, and context.
+
+CRITICAL RULES:
+- Output ONLY the rewritten prompt text. Do NOT answer the prompt. Do NOT generate a response.
+- Think of this as editing, not generating. You are shortening text, not creating content.
+- Keep all specific names, numbers, values, and technical terms
+- Remove filler words, greetings, unnecessary explanations, pleasantries
+- Remove redundancy and repetition
+- Keep code blocks exactly as-is
+- The result must be a shorter version that produces the same answer when sent to an AI
+
+ORIGINAL PROMPT:
+{user_text}
+
+OUTPUT (shorter version of the same prompt, nothing else):"""
+
+    def __init__(self, config: PipelineConfig, client=None):
         self.config = config
+        self.client = client
 
     def _ollama_generate(self, prompt: str) -> str:
-        """Call Ollama for text compression."""
+        """Call Ollama for text compression. Uses shared FastClient if available."""
+        if self.client:
+            return self.client.ollama_generate(
+                model=self.config.predictor_model,
+                prompt=prompt,
+                max_tokens=self.config.max_local_summary_tokens * 4,
+            )
+        # Fallback: direct requests if no client shared
+        import requests as _requests
         url = f"{self.config.ollama_base_url}/api/generate"
         payload = {
             "model": self.config.predictor_model,
             "prompt": prompt,
             "stream": False,
             "options": {
-                "temperature": 0.1,
+                "temperature": self.config.temperature,
                 "num_predict": self.config.max_local_summary_tokens * 4,
             },
         }
         try:
-            resp = requests.post(url, json=payload, timeout=self.config.request_timeout)
+            resp = _requests.post(url, json=payload, timeout=self.config.request_timeout)
             resp.raise_for_status()
             return resp.json().get("response", "")
-        except requests.exceptions.ConnectionError:
-            raise ConnectionError(
-                "Cannot connect to Ollama. Make sure it's running: ollama serve"
-            )
+        except _requests.exceptions.ConnectionError:
+            raise ConnectionError("Cannot connect to Ollama. Make sure it's running: ollama serve")
 
     def _estimate_tokens(self, text: str) -> int:
         """Rough token count estimate (~0.75 tokens per word for English)."""
@@ -326,7 +348,9 @@ Return ONLY valid JSON:
         prompt = prompt_map.get(mode, prompt_map["compress"])
 
         # Run local LLM
-        logger.info(f"Compressing {estimated_tokens} tokens locally with {self.config.predictor_model}")
+        logger.info(
+            f"Compressing {estimated_tokens} tokens locally with {self.config.predictor_model}"
+        )
         raw = self._ollama_generate(prompt)
 
         # Parse into payload
@@ -374,7 +398,43 @@ Return ONLY valid JSON:
         Returns:
             TextPayload with condensed document facts.
         """
-        full_text = "\n\n---\n\n".join(
-            f"[Doc {i+1}]: {doc}" for i, doc in enumerate(documents)
-        )
+        full_text = "\n\n---\n\n".join(f"[Doc {i+1}]: {doc}" for i, doc in enumerate(documents))
         return self.compress(full_text, mode="condense", question=question)
+
+    def compress_prompt(self, text: str) -> dict:
+        """
+        Compress a verbose prompt into a concise one WITHOUT generating an answer.
+
+        This is different from compress() — it returns the compressed prompt text
+        directly, not a structured payload. Use this when you want to save tokens
+        by making a prompt shorter before sending it to a cloud LLM.
+
+        Args:
+            text: The verbose prompt to compress.
+
+        Returns:
+            Dictionary with compressed prompt and stats.
+        """
+        start = time.time()
+        original_tokens = self._estimate_tokens(text)
+
+        prompt = self.COMPRESS_ONLY_PROMPT.format(user_text=text[:4000])
+        compressed = self._ollama_generate(prompt).strip()
+
+        compressed_tokens = self._estimate_tokens(compressed)
+        elapsed_ms = (time.time() - start) * 1000
+
+        logger.info(
+            f"Prompt compressed: {original_tokens} → {compressed_tokens} tokens "
+            f"({original_tokens / max(compressed_tokens, 1):.1f}x reduction, {elapsed_ms:.0f}ms)"
+        )
+
+        return {
+            "original_prompt": text,
+            "compressed_prompt": compressed,
+            "original_tokens": original_tokens,
+            "compressed_tokens": compressed_tokens,
+            "tokens_saved": original_tokens - compressed_tokens,
+            "compression_ratio": f"{original_tokens / max(compressed_tokens, 1):.1f}x",
+            "processing_time_ms": round(elapsed_ms, 1),
+        }
