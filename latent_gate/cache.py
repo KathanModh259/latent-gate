@@ -8,6 +8,7 @@ from the local disk cache instead of re-running the Ollama pipeline.
 import json
 import hashlib
 import logging
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
@@ -15,6 +16,8 @@ from latent_gate.config import PipelineConfig
 from latent_gate.payload import SemanticPayload
 
 logger = logging.getLogger("latent_gate.cache")
+
+_MAX_MEMORY_CACHE_SIZE = 500
 
 
 class PayloadCache:
@@ -29,7 +32,7 @@ class PayloadCache:
     def __init__(self, config: PipelineConfig):
         self.cache_dir = Path(config.cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self._memory_cache: dict = {}  # In-memory LRU for hot paths
+        self._memory_cache: OrderedDict = OrderedDict()  # Bounded LRU for hot paths
         logger.info(f"Cache initialized at: {self.cache_dir}")
 
     def _get_cache_key(self, image_path: str) -> str:
@@ -61,6 +64,7 @@ class PayloadCache:
 
         # Check in-memory cache first
         if cache_key in self._memory_cache:
+            self._memory_cache.move_to_end(cache_key)
             logger.debug(f"Memory cache hit: {cache_key[:8]}...")
             return self._memory_cache[cache_key]
 
@@ -72,6 +76,10 @@ class PayloadCache:
                     data = json.load(f)
                 payload = SemanticPayload.from_dict(data)
                 self._memory_cache[cache_key] = payload  # Promote to memory
+                self._memory_cache.move_to_end(cache_key)
+                # Evict oldest if over limit
+                while len(self._memory_cache) > _MAX_MEMORY_CACHE_SIZE:
+                    self._memory_cache.popitem(last=False)
                 logger.debug(f"Disk cache hit: {cache_key[:8]}...")
                 return payload
             except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as e:
@@ -95,12 +103,19 @@ class PayloadCache:
             return
 
         # Write to disk
-        cache_path = self._get_cache_path(cache_key)
-        with open(cache_path, "w") as f:
-            json.dump(payload.to_dict(), f, indent=2)
+        try:
+            cache_path = self._get_cache_path(cache_key)
+            with open(cache_path, "w") as f:
+                json.dump(payload.to_dict(), f, indent=2)
+        except (OSError, IOError) as e:
+            logger.warning(f"Failed to write cache to disk: {e}")
+            return
 
         # Store in memory
         self._memory_cache[cache_key] = payload
+        self._memory_cache.move_to_end(cache_key)
+        while len(self._memory_cache) > _MAX_MEMORY_CACHE_SIZE:
+            self._memory_cache.popitem(last=False)
         logger.debug(f"Cached: {cache_key[:8]}... → {cache_path.name}")
 
     def clear(self):

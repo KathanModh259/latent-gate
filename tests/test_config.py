@@ -10,7 +10,7 @@ class TestPipelineConfig:
     def test_default_values(self):
         config = PipelineConfig()
         assert config.vision_model == "llava:7b"
-        assert config.predictor_model == "llama3:8b"
+        assert config.predictor_model == "phi3:mini"
         assert config.remote_provider == "openai"
         assert config.remote_model == "gpt-4o-mini"
         assert config.enable_caching is True

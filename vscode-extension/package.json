@@ -2,7 +2,7 @@
   "name": "latent-gate-vscode",
   "displayName": "LatentGate — Local-First AI Compression",
   "description": "Compress images, text, conversations, and documents locally via Ollama before sending to cloud LLMs. Save ~80% on token costs.",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "publisher": "KathanModh259",
   "license": "MIT",
   "repository": {
@@ -53,24 +53,24 @@
         },
         "latentGate.predictorModel": {
           "type": "string",
-          "default": "llama3:8b",
-          "description": "Text model for prediction/structuring"
+          "default": "phi3:mini",
+          "description": "Text model for prediction/structuring (fast: phi3:mini)"
         },
         "latentGate.remoteProvider": {
           "type": "string",
-          "default": "openai",
+          "default": "ollama",
           "enum": [
+            "ollama",
             "openai",
             "anthropic",
             "google",
-            "ollama",
             "custom"
           ],
-          "description": "Remote LLM provider"
+          "description": "Remote LLM provider (default: ollama, fully local)"
         },
         "latentGate.remoteModel": {
           "type": "string",
-          "default": "gpt-4o-mini",
+          "default": "phi3:mini",
           "description": "Remote model name"
         },
         "latentGate.remoteApiKey": {
@@ -254,7 +254,7 @@
     "package": "vsce package"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
+    "@types/node": "^20.19.43",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^2.22.0",
     "typescript": "^5.3.0"

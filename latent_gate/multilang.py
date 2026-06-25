@@ -299,21 +299,22 @@ def translate_to_english(
             config = PipelineConfig()
 
         client = FastClient(config)
+        try:
+            prompt = f"""Translate the following text from {LANGUAGE_CODES.get(source_lang, source_lang)} to English. 
+    Preserve the original meaning and context. Return ONLY the translation, no explanations.
 
-        prompt = f"""Translate the following text from {LANGUAGE_CODES.get(source_lang, source_lang)} to English. 
-Preserve the original meaning and context. Return ONLY the translation, no explanations.
+    Text to translate:
+    {text[:2000]}"""
 
-Text to translate:
-{text[:2000]}"""
+            translation = client.ollama_generate(
+                model=config.predictor_model,
+                prompt=prompt,
+                max_tokens=1000,
+            )
 
-        translation = client.ollama_generate(
-            model=config.predictor_model,
-            prompt=prompt,
-            max_tokens=1000,
-        )
-
-        client.close()
-        return translation.strip()
+            return translation.strip()
+        finally:
+            client.close()
 
     except Exception as e:
         logger.warning(f"Translation failed: {e}")

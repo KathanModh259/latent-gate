@@ -4,6 +4,7 @@ export class StatusBarManager implements vscode.Disposable {
     private statusBarItem: vscode.StatusBarItem;
     private totalSavings: number = 0;
     private isHealthy: boolean = false;
+    private isLoading: boolean = false;
 
     constructor(context: vscode.ExtensionContext) {
         this.statusBarItem = vscode.window.createStatusBarItem(
@@ -18,6 +19,12 @@ export class StatusBarManager implements vscode.Disposable {
 
     setHealthy(healthy: boolean) {
         this.isHealthy = healthy;
+        this.isLoading = false;
+        this.updateDisplay();
+    }
+
+    setLoading(loading: boolean) {
+        this.isLoading = loading;
         this.updateDisplay();
     }
 
@@ -32,8 +39,15 @@ export class StatusBarManager implements vscode.Disposable {
     }
 
     private updateDisplay() {
+        if (this.isLoading) {
+            this.statusBarItem.text = '$(loading~) LatentGate: Setting up...';
+            this.statusBarItem.tooltip = 'Loading models, please wait...';
+            this.statusBarItem.backgroundColor = undefined;
+            return;
+        }
+
         if (!this.isHealthy) {
-            this.statusBarItem.text = '$(warning) LatentGate: Offline';
+            this.statusBarItem.text = '$(warning) LatentGate';
             this.statusBarItem.tooltip = 'Ollama not detected. Click to configure.';
             this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
             return;
@@ -43,11 +57,11 @@ export class StatusBarManager implements vscode.Disposable {
             const saved = this.totalSavings >= 1000
                 ? `${(this.totalSavings / 1000).toFixed(1)}k`
                 : this.totalSavings.toString();
-            this.statusBarItem.text = `$(zap) LatentGate: ${saved} tokens saved`;
-            this.statusBarItem.tooltip = `Click to view session stats\nTotal tokens saved: ${this.totalSavings}`;
+            this.statusBarItem.text = `$(zap) LatentGate: ${saved} tokens`;
+            this.statusBarItem.tooltip = `Click to view stats\nTokens saved: ${this.totalSavings}`;
             this.statusBarItem.backgroundColor = undefined;
         } else {
-            this.statusBarItem.text = '$(rocket) LatentGate';
+            this.statusBarItem.text = '$(zap) LatentGate';
             this.statusBarItem.tooltip = 'LatentGate active. Click for options.';
             this.statusBarItem.backgroundColor = undefined;
         }

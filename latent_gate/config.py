@@ -18,7 +18,7 @@ class PipelineConfig:
     vision_model: str = "llava:7b"
 
     # Text model for Predictor stage (structures raw extraction)
-    predictor_model: str = "llama3:8b"
+    predictor_model: str = "phi3:mini"
 
     # ---- Remote (Cloud LLM) Settings ----
     remote_provider: str = "openai"  # "openai" | "anthropic" | "ollama" | "custom"
@@ -67,7 +67,7 @@ class PipelineConfig:
                 self.remote_api_key = os.getenv(env_var, "")
 
     def validate(self) -> list:
-        """Return list of validation warnings (empty = all good)."""
+        """Return list of validation warnings/errors (empty = all good)."""
         warnings = []
         if self.remote_provider != "ollama" and not self.remote_api_key:
             warnings.append(
@@ -76,4 +76,16 @@ class PipelineConfig:
             )
         if self.similarity_threshold < 0 or self.similarity_threshold > 1:
             warnings.append("similarity_threshold must be between 0.0 and 1.0")
+        if self.temperature < 0 or self.temperature > 2.0:
+            warnings.append("temperature must be between 0.0 and 2.0")
+        if self.request_timeout < 1:
+            warnings.append("request_timeout must be at least 1 second")
+        if self.max_local_summary_tokens < 10:
+            warnings.append("max_local_summary_tokens should be at least 10")
+        if not self.ollama_base_url:
+            warnings.append("ollama_base_url is empty")
+        if self.ollama_base_url and not self.ollama_base_url.startswith(("http://", "https://")):
+            warnings.append(
+                f"ollama_base_url should start with http:// or https://, got: {self.ollama_base_url}"
+            )
         return warnings

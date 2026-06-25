@@ -17,6 +17,7 @@ import time
 import hashlib
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import OrderedDict
 
 from latent_gate.config import PipelineConfig
 from latent_gate.text_processor import TextProcessor
@@ -26,6 +27,9 @@ from latent_gate.remote_decoder import RemoteDecoder, create_decoder
 from latent_gate.fast_client import FastClient
 
 logger = logging.getLogger("latent_gate.pipeline")
+
+# Bounded cache to prevent memory leaks in long-running processes
+_MAX_DEDUP_CACHE_SIZE = 1000
 
 
 class LatentGatePipeline:
@@ -75,8 +79,8 @@ class LatentGatePipeline:
             self._offline_decoder = OllamaRemoteDecoder(self.config, client=self.client)
             logger.info("Offline-first mode enabled — using local Ollama for answers")
 
-        # Semantic deduplication cache for batch processing
-        self._query_cache: dict = {}
+        # Semantic deduplication cache for batch processing (bounded)
+        self._query_cache: OrderedDict = OrderedDict()
         self._dedup_hits: int = 0
 
         # Thread pool for parallel processing
@@ -460,7 +464,8 @@ class LatentGatePipeline:
         path_to_index = {path: i for i, path in enumerate(image_paths)}
         results.sort(
             key=lambda r: path_to_index.get(
-                r.get("payload", {}).get("source_image", ""), len(image_paths)
+                r.get("payload", {}).get("source_image", ""),
+                len(image_paths) if image_paths else 0,
             )
         )
 
@@ -749,9 +754,14 @@ class LatentGatePipeline:
         return None
 
     def _cache_result(self, text: str, question: str, result: dict):
-        """Cache a query result for deduplication."""
+        """Cache a query result for deduplication (bounded to prevent memory leaks)."""
         qhash = self._query_hash(text, question)
+        if qhash in self._query_cache:
+            self._query_cache.move_to_end(qhash)
         self._query_cache[qhash] = result
+        # Evict oldest entries when cache exceeds max size
+        while len(self._query_cache) > _MAX_DEDUP_CACHE_SIZE:
+            self._query_cache.popitem(last=False)
 
     def get_dedup_stats(self) -> dict:
         """Get deduplication statistics."""

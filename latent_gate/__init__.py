@@ -1,5 +1,5 @@
 """
-LatentGate v1.2.1 — Process Locally. Send Smart. Pay Less.
+LatentGate v1.2.2 — Process Locally. Send Smart. Pay Less.
 ============================================================
 VL-JEPA inspired pipeline that compresses images, text, conversations,
 and RAG documents locally via Ollama, then sends compact payloads to
@@ -60,6 +60,7 @@ from latent_gate.selective_decoder import SelectiveDecoder
 from latent_gate.fast_client import FastClient
 from latent_gate.remote_decoder import (
     RemoteDecoder,
+    RemoteDecodeError,
     OpenAIDecoder,
     AnthropicDecoder,
     GoogleDecoder,
@@ -93,7 +94,7 @@ from latent_gate.multilang import (
     MultiLanguageProcessor,
 )
 
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 __author__ = "Kathan Modh"
 __license__ = "MIT"
 __url__ = "https://github.com/KathanModh259/latent-gate"
@@ -108,6 +109,7 @@ __all__ = [
     "SelectiveDecoder",
     "FastClient",
     "RemoteDecoder",
+    "RemoteDecodeError",
     "OpenAIDecoder",
     "AnthropicDecoder",
     "GoogleDecoder",

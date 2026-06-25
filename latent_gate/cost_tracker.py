@@ -118,37 +118,34 @@ class CostTracker:
 
     def _init_db(self):
         """Initialize SQLite database."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS usage (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp REAL NOT NULL,
-                session_id TEXT NOT NULL,
-                query_type TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                model TEXT NOT NULL,
-                input_tokens INTEGER NOT NULL,
-                output_tokens INTEGER NOT NULL,
-                estimated_cost REAL NOT NULL,
-                tokens_saved INTEGER NOT NULL,
-                compression_ratio REAL NOT NULL,
-                latency_ms REAL NOT NULL,
-                was_cached BOOLEAN NOT NULL
-            )
-        """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp REAL NOT NULL,
+                    session_id TEXT NOT NULL,
+                    query_type TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    input_tokens INTEGER NOT NULL,
+                    output_tokens INTEGER NOT NULL,
+                    estimated_cost REAL NOT NULL,
+                    tokens_saved INTEGER NOT NULL,
+                    compression_ratio REAL NOT NULL,
+                    latency_ms REAL NOT NULL,
+                    was_cached BOOLEAN NOT NULL
+                )
+            """)
 
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_session ON usage(session_id)
-        """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_session ON usage(session_id)
+            """)
 
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_timestamp ON usage(timestamp)
-        """)
-
-        conn.commit()
-        conn.close()
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_timestamp ON usage(timestamp)
+            """)
 
     def record_usage(
         self,
@@ -198,35 +195,34 @@ class CostTracker:
         self._session_records.append(record)
 
         # Persist to database
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            INSERT INTO usage (
-                timestamp, session_id, query_type, provider, model,
-                input_tokens, output_tokens, estimated_cost, tokens_saved,
-                compression_ratio, latency_ms, was_cached
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                record.timestamp,
-                record.session_id,
-                record.query_type,
-                record.provider,
-                record.model,
-                record.input_tokens,
-                record.output_tokens,
-                record.estimated_cost,
-                record.tokens_saved,
-                record.compression_ratio,
-                record.latency_ms,
-                record.was_cached,
-            ),
-        )
-
-        conn.commit()
-        conn.close()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO usage (
+                        timestamp, session_id, query_type, provider, model,
+                        input_tokens, output_tokens, estimated_cost, tokens_saved,
+                        compression_ratio, latency_ms, was_cached
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        record.timestamp,
+                        record.session_id,
+                        record.query_type,
+                        record.provider,
+                        record.model,
+                        record.input_tokens,
+                        record.output_tokens,
+                        record.estimated_cost,
+                        record.tokens_saved,
+                        record.compression_ratio,
+                        record.latency_ms,
+                        record.was_cached,
+                    ),
+                )
+        except sqlite3.Error as e:
+            logger.error(f"Failed to persist usage record to database: {e}")
 
         logger.debug(f"Recorded usage: {query_type} via {provider}/{model} - ${cost:.6f}")
 
@@ -261,28 +257,31 @@ class CostTracker:
         Returns:
             Dictionary with statistics.
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
 
-        # Build query
-        query = "SELECT * FROM usage WHERE 1=1"
-        params = []
+                # Build query
+                query = "SELECT * FROM usage WHERE 1=1"
+                params = []
 
-        if start_time:
-            query += " AND timestamp >= ?"
-            params.append(start_time)
+                if start_time:
+                    query += " AND timestamp >= ?"
+                    params.append(start_time)
 
-        if end_time:
-            query += " AND timestamp <= ?"
-            params.append(end_time)
+                if end_time:
+                    query += " AND timestamp <= ?"
+                    params.append(end_time)
 
-        if session_id:
-            query += " AND session_id = ?"
-            params.append(session_id)
+                if session_id:
+                    query += " AND session_id = ?"
+                    params.append(session_id)
 
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        conn.close()
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+        except sqlite3.Error as e:
+            logger.error(f"Failed to query statistics: {e}")
+            return self._empty_statistics()
 
         if not rows:
             return self._empty_statistics()
@@ -470,22 +469,25 @@ class CostTracker:
                 json.dump(stats, f, indent=2)
 
         elif fmt == "csv":
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    cursor = conn.cursor()
 
-            query = "SELECT * FROM usage WHERE 1=1"
-            params = []
+                    query = "SELECT * FROM usage WHERE 1=1"
+                    params = []
 
-            if start_time:
-                query += " AND timestamp >= ?"
-                params.append(start_time)
-            if end_time:
-                query += " AND timestamp <= ?"
-                params.append(end_time)
+                    if start_time:
+                        query += " AND timestamp >= ?"
+                        params.append(start_time)
+                    if end_time:
+                        query += " AND timestamp <= ?"
+                        params.append(end_time)
 
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-            conn.close()
+                    cursor.execute(query, params)
+                    rows = cursor.fetchall()
+            except sqlite3.Error as e:
+                logger.error(f"Failed to export CSV: {e}")
+                return
 
             with open(filepath, "w", newline="") as f:
                 writer = csv.writer(f)
@@ -520,16 +522,17 @@ class CostTracker:
         Args:
             before_timestamp: Only clear records before this timestamp (None = clear all)
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
 
-        if before_timestamp:
-            cursor.execute("DELETE FROM usage WHERE timestamp < ?", (before_timestamp,))
-        else:
-            cursor.execute("DELETE FROM usage")
-
-        conn.commit()
-        conn.close()
+                if before_timestamp:
+                    cursor.execute("DELETE FROM usage WHERE timestamp < ?", (before_timestamp,))
+                else:
+                    cursor.execute("DELETE FROM usage")
+        except sqlite3.Error as e:
+            logger.error(f"Failed to clear history: {e}")
+            return
 
         logger.info("Cleared usage history")
 

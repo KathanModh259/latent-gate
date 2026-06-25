@@ -8,17 +8,13 @@ import { registerCommands } from './commands';
 let client: LatentGateClient;
 let statusBar: StatusBarManager;
 
-export function activate(context: vscode.ExtensionContext) {
-    console.log('LatentGate extension activating...');
+export async function activate(context: vscode.ExtensionContext) {
+    console.log('LatentGate: activating...');
 
-    // Initialize client
     client = new LatentGateClient(context);
-
-    // Status bar
     statusBar = new StatusBarManager(context);
     context.subscriptions.push(statusBar);
 
-    // Webview providers
     const dashboardProvider = new DashboardProvider(context.extensionUri, client);
     const toolsProvider = new ToolsProvider(context.extensionUri, client);
 
@@ -27,32 +23,28 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.registerWebviewViewProvider('latentGate.tools', toolsProvider),
     );
 
-    // Register commands
     registerCommands(context, client, statusBar, dashboardProvider);
 
-    // Auto-configure MCP if first run
-    const hasConfigured = context.globalState.get('latentGate.configured');
-    if (!hasConfigured) {
-        vscode.commands.executeCommand('latentGate.setupMcp');
-        context.globalState.update('latentGate.configured', true);
+    // Auto-setup: check Ollama, pull models if needed
+    statusBar.setLoading(true);
+    const status = await client.setupAuto();
+    statusBar.setLoading(false);
+    statusBar.setHealthy(status.healthy);
+
+    if (!status.healthy) {
+        const action = await vscode.window.showWarningMessage(
+            `LatentGate: ${status.message}`,
+            'Open Settings',
+            'Dismiss'
+        );
+        if (action === 'Open Settings') {
+            vscode.commands.executeCommand('latentGate.openSettings');
+        }
+    } else {
+        vscode.window.showInformationMessage('LatentGate: Ready!');
     }
 
-    // Start health check
-    client.checkHealth().then(healthy => {
-        statusBar.setHealthy(healthy);
-        if (!healthy) {
-            vscode.window.showWarningMessage(
-                'LatentGate: Ollama not detected. Start with "ollama serve" or configure remote provider.',
-                'Open Settings'
-            ).then(action => {
-                if (action === 'Open Settings') {
-                    vscode.commands.executeCommand('latentGate.openSettings');
-                }
-            });
-        }
-    });
-
-    console.log('LatentGate extension activated');
+    console.log('LatentGate: activated');
 }
 
 export function deactivate() {

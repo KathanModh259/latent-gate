@@ -79,7 +79,7 @@ def main():
         help="Remote LLM provider (default: ollama)",
     )
     parser.add_argument("--vision-model", default="llava:7b", help="Ollama vision model")
-    parser.add_argument("--predictor-model", default="llama3:8b", help="Ollama text model")
+    parser.add_argument("--predictor-model", default="phi3:mini", help="Ollama text model")
     parser.add_argument("--remote-model", default="", help="Remote model name")
     parser.add_argument("--api-key", default="", help="API key for cloud provider")
     parser.add_argument("--ollama-url", default="http://localhost:11434", help="Ollama server URL")
@@ -105,7 +105,7 @@ def main():
             "openai": "gpt-4o-mini",
             "anthropic": "claude-sonnet-4-20250514",
             "google": "gemini-2.0-flash",
-            "ollama": "llama3:8b",
+            "ollama": "phi3:mini",
             "groq": "llama-3.3-70b-versatile",
             "deepseek": "deepseek-chat",
             "together": "meta-llama/Llama-3-70b-chat-hf",
@@ -208,19 +208,19 @@ def main():
         print(f"\n{'=' * 55}")
         print(f"  Mode:            {result.get('input_type', 'unknown')}")
         if result.get("input_type") == "compress_only":
-            print(f"  Original:        {result['original_tokens']} tokens")
-            print(f"  Compressed:      {result['compressed_tokens']} tokens")
+            print(f"  Original:        {result.get('original_tokens', '?')} tokens")
+            print(f"  Compressed:      {result.get('compressed_tokens', '?')} tokens")
             print(
-                f"  Saved:           ~{result['tokens_saved']} tokens ({result['compression_ratio']})"
+                f"  Saved:           ~{result.get('tokens_saved', '?')} tokens ({result.get('compression_ratio', '?')})"
             )
-            print(f"\n  Compressed prompt:\n  {result['compressed_prompt']}")
+            print(f"\n  Compressed prompt:\n  {result.get('compressed_prompt', '(empty)')}")
         else:
-            print(f"  Answer:          {result['answer']}")
-            print(f"  Tokens sent:     ~{result['tokens_estimated']}")
-            if "original_tokens" in result:
+            print(f"  Answer:          {result.get('answer', '(no answer)')}")
+            print(f"  Tokens sent:     ~{result.get('tokens_estimated', '?')}")
+            if result.get("original_tokens"):
                 print(f"  Original tokens: ~{result['original_tokens']}")
-                print(f"  Compression:     {result['compression_ratio']}")
-                print(f"  Tokens saved:    ~{result['tokens_saved']}")
+                print(f"  Compression:     {result.get('compression_ratio', '?')}")
+                print(f"  Tokens saved:    ~{result.get('tokens_saved', '?')}")
         print(f"{'=' * 55}")
 
 

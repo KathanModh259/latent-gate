@@ -241,6 +241,15 @@ OUTPUT (shorter version of the same prompt, nothing else):"""
             return resp.json().get("response", "")
         except _requests.exceptions.ConnectionError:
             raise ConnectionError("Cannot connect to Ollama. Make sure it's running: ollama serve")
+        except _requests.exceptions.Timeout:
+            raise TimeoutError(
+                f"Ollama request timed out after {self.config.request_timeout}s. "
+                "The model may be loading or the request is too large."
+            )
+        except _requests.exceptions.HTTPError as e:
+            raise ConnectionError(
+                f"Ollama HTTP error: {e}. Check if the model '{self.config.predictor_model}' is available."
+            )
 
     def _estimate_tokens(self, text: str) -> int:
         """Rough token count estimate (~0.75 tokens per word for English)."""

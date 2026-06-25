@@ -164,14 +164,80 @@ class FastClient:
         json_payload: dict,
     ) -> dict:
         """Optimized remote API call with session reuse."""
-        resp = self._remote_session.post(
-            url,
-            headers=headers,
-            json=json_payload,
-            timeout=self.config.request_timeout,
-        )
+        try:
+            resp = self._remote_session.post(
+                url,
+                headers=headers,
+                json=json_payload,
+                timeout=self.config.request_timeout,
+            )
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError(
+                f"Cannot connect to remote API at {url}. "
+                "Check your network connection and API endpoint."
+            )
+        except requests.exceptions.Timeout:
+            raise TimeoutError(
+                f"Request to {url} timed out after {self.config.request_timeout}s."
+            )
+
+        if resp.status_code == 429:
+            retry_after = resp.headers.get("Retry-After", "unknown")
+            raise ConnectionError(
+                f"Rate limited by API (429). Retry after {retry_after}s."
+            )
+        if resp.status_code == 401:
+            raise PermissionError(
+                "API authentication failed (401). Check your API key."
+            )
+        if resp.status_code == 403:
+            raise PermissionError(
+                "API access denied (403). Check your API key permissions."
+            )
+
         resp.raise_for_status()
-        return resp.json()
+
+        try:
+            return resp.json()
+        except ValueError:
+            raise ValueError(
+                f"API returned non-JSON response (status {resp.status_code}): "
+                f"{resp.text[:200]}"
+            )
+
+    def post_stream(
+        self,
+        url: str,
+        headers: dict,
+        json_payload: dict,
+    ):
+        """Optimized streaming remote API call with session reuse."""
+        try:
+            resp = self._remote_session.post(
+                url,
+                headers=headers,
+                json=json_payload,
+                stream=True,
+                timeout=self.config.request_timeout,
+            )
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError(
+                f"Cannot connect to streaming API at {url}. "
+                "Check your network connection and API endpoint."
+            )
+        except requests.exceptions.Timeout:
+            raise TimeoutError(
+                f"Streaming request to {url} timed out after {self.config.request_timeout}s."
+            )
+
+        if resp.status_code == 429:
+            retry_after = resp.headers.get("Retry-After", "unknown")
+            raise ConnectionError(
+                f"Rate limited by streaming API (429). Retry after {retry_after}s."
+            )
+
+        resp.raise_for_status()
+        return resp
 
     # ----------------------------------------------------------------
     # Cleanup

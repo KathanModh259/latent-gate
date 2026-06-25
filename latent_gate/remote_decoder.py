@@ -29,6 +29,110 @@ SYSTEM_PROMPT = (
 )
 
 
+class RemoteDecodeError(Exception):
+    """Raised when a remote LLM API call fails."""
+
+    def __init__(self, message: str, status_code: int = 0, provider: str = ""):
+        super().__init__(message)
+        self.status_code = status_code
+        self.provider = provider
+
+
+def _extract_content_from_openai(data: dict, provider: str = "openai") -> str:
+    """Safely extract content from OpenAI-compatible API response."""
+    try:
+        choices = data.get("choices")
+        if not choices:
+            error_msg = data.get("error", {}).get("message", "No choices in response")
+            raise RemoteDecodeError(
+                f"{provider} returned no choices: {error_msg}",
+                status_code=data.get("error", {}).get("code", 0),
+                provider=provider,
+            )
+        first = choices[0]
+        message = first.get("message") or first.get("delta", {})
+        content = message.get("content")
+        if not content:
+            finish_reason = first.get("finish_reason", "unknown")
+            if finish_reason == "length":
+                raise RemoteDecodeError(
+                    f"{provider} response truncated (max_tokens too low)",
+                    provider=provider,
+                )
+            elif finish_reason == "content_filter":
+                raise RemoteDecodeError(
+                    f"{provider} response blocked by content filter",
+                    provider=provider,
+                )
+            raise RemoteDecodeError(
+                f"{provider} returned empty content (finish_reason={finish_reason})",
+                provider=provider,
+            )
+        return content
+    except RemoteDecodeError:
+        raise
+    except Exception as e:
+        raise RemoteDecodeError(
+            f"Failed to parse {provider} response: {e}",
+            provider=provider,
+        ) from e
+
+
+def _extract_content_from_anthropic(data: dict) -> str:
+    """Safely extract content from Anthropic API response."""
+    try:
+        content_blocks = data.get("content")
+        if not content_blocks:
+            error_type = data.get("error", {}).get("type", "unknown")
+            error_msg = data.get("error", {}).get("message", "No content in response")
+            raise RemoteDecodeError(
+                f"Anthropic returned no content ({error_type}): {error_msg}",
+                provider="anthropic",
+            )
+        texts = [b.get("text", "") for b in content_blocks if b.get("type") == "text"]
+        result = " ".join(texts).strip()
+        if not result:
+            raise RemoteDecodeError(
+                "Anthropic returned empty text content",
+                provider="anthropic",
+            )
+        return result
+    except RemoteDecodeError:
+        raise
+    except Exception as e:
+        raise RemoteDecodeError(
+            f"Failed to parse Anthropic response: {e}",
+            provider="anthropic",
+        ) from e
+
+
+def _extract_content_from_google(data: dict) -> str:
+    """Safely extract content from Google Gemini API response."""
+    try:
+        candidates = data.get("candidates")
+        if not candidates:
+            raise RemoteDecodeError(
+                "Google Gemini returned no candidates",
+                provider="google",
+            )
+        parts = candidates[0].get("content", {}).get("parts", [])
+        texts = [p.get("text", "") for p in parts if p.get("text")]
+        result = " ".join(texts).strip()
+        if not result:
+            raise RemoteDecodeError(
+                "Google Gemini returned empty text",
+                provider="google",
+            )
+        return result
+    except RemoteDecodeError:
+        raise
+    except Exception as e:
+        raise RemoteDecodeError(
+            f"Failed to parse Google response: {e}",
+            provider="google",
+        ) from e
+
+
 def _build_messages(compact_input: str, user_query: str) -> list:
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -38,24 +142,30 @@ def _build_messages(compact_input: str, user_query: str) -> list:
 
 def _stream_sse(response) -> Iterator[str]:
     """Parse Server-Sent Events from an OpenAI-compatible streaming response."""
-    for line in response.iter_lines():
-        if line:
-            line = line.decode("utf-8")
-            if line.startswith("data: "):
-                data = line[6:]
-                if data.strip() == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data)
-                    content = (
-                        chunk.get("choices", [{}])[0]
-                        .get("delta", {})
-                        .get("content")
-                    )
-                    if content:
-                        yield content
-                except (json.JSONDecodeError, IndexError, KeyError):
-                    continue
+    try:
+        for line in response.iter_lines():
+            if line:
+                line = line.decode("utf-8")
+                if line.startswith("data: "):
+                    data = line[6:]
+                    if data.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                        choices = chunk.get("choices", [])
+                        if choices:
+                            content = (
+                                choices[0]
+                                .get("delta", {})
+                                .get("content")
+                            )
+                            if content:
+                                yield content
+                    except (json.JSONDecodeError, IndexError, KeyError, TypeError):
+                        continue
+    except Exception as e:
+        logger.error(f"Stream parsing failed: {e}")
+        return
 
 
 class RemoteDecoder(ABC):
@@ -116,7 +226,7 @@ class OpenAICompatibleDecoder(RemoteDecoder):
         payload["messages"] = _build_messages(compact_input, user_query)
         logger.info(f"{self.provider_name} request to {self.model}")
         data = self.client.remote_post(url, self._headers(), payload)
-        return data["choices"][0]["message"]["content"]
+        return _extract_content_from_openai(data, self.provider_name)
 
     def decode_stream(self, compact_input: str, user_query: str) -> Iterator[str]:
         url = f"{self.base_url}/chat/completions"
@@ -124,15 +234,16 @@ class OpenAICompatibleDecoder(RemoteDecoder):
         payload["messages"] = _build_messages(compact_input, user_query)
         logger.info(f"{self.provider_name} streaming request to {self.model}")
         try:
-            import requests
-            response = requests.post(
-                url, headers=self._headers(), json=payload, stream=True, timeout=120
-            )
-            response.raise_for_status()
+            response = self.client.post_stream(url, self._headers(), payload)
             yield from _stream_sse(response)
-        except Exception as e:
-            logger.error(f"Streaming failed: {e}")
+        except RemoteDecodeError:
             raise
+        except Exception as e:
+            logger.error(f"Streaming failed for {self.provider_name}: {e}")
+            raise RemoteDecodeError(
+                f"{self.provider_name} streaming failed: {e}",
+                provider=self.provider_name,
+            ) from e
 
 
 class OpenAIDecoder(OpenAICompatibleDecoder):
@@ -190,7 +301,7 @@ class AzureOpenAIDecoder(RemoteDecoder):
         }
         logger.info(f"Azure OpenAI request to {self.deployment}")
         data = self.client.remote_post(self._url(), self._headers(), payload)
-        return data["choices"][0]["message"]["content"]
+        return _extract_content_from_openai(data, "azure")
 
     def decode_stream(self, compact_input: str, user_query: str) -> Iterator[str]:
         payload = {
@@ -201,15 +312,16 @@ class AzureOpenAIDecoder(RemoteDecoder):
         }
         logger.info(f"Azure OpenAI streaming request to {self.deployment}")
         try:
-            import requests
-            response = requests.post(
-                self._url(), headers=self._headers(), json=payload, stream=True, timeout=120
-            )
-            response.raise_for_status()
+            response = self.client.post_stream(self._url(), self._headers(), payload)
             yield from _stream_sse(response)
-        except Exception as e:
-            logger.error(f"Streaming failed: {e}")
+        except RemoteDecodeError:
             raise
+        except Exception as e:
+            logger.error(f"Streaming failed for azure: {e}")
+            raise RemoteDecodeError(
+                f"azure streaming failed: {e}",
+                provider="azure",
+            ) from e
 
 
 class AnthropicDecoder(RemoteDecoder):
@@ -248,7 +360,7 @@ class AnthropicDecoder(RemoteDecoder):
         payload["messages"] = [{"role": "user", "content": f"[SCENE DATA]: {compact_input}\n\n[QUESTION]: {user_query}"}]
         logger.info(f"Anthropic request to {self.model}")
         data = self.client.remote_post(url, self._headers(), payload)
-        return data["content"][0]["text"]
+        return _extract_content_from_anthropic(data)
 
     def decode_stream(self, compact_input: str, user_query: str) -> Iterator[str]:
         url = "https://api.anthropic.com/v1/messages"
@@ -256,11 +368,7 @@ class AnthropicDecoder(RemoteDecoder):
         payload["messages"] = [{"role": "user", "content": f"[SCENE DATA]: {compact_input}\n\n[QUESTION]: {user_query}"}]
         logger.info(f"Anthropic streaming request to {self.model}")
         try:
-            import requests
-            response = requests.post(
-                url, headers=self._headers(), json=payload, stream=True, timeout=120
-            )
-            response.raise_for_status()
+            response = self.client.post_stream(url, self._headers(), payload)
             for line in response.iter_lines():
                 if line:
                     line = line.decode("utf-8")
@@ -272,9 +380,14 @@ class AnthropicDecoder(RemoteDecoder):
                                     yield event["delta"]["text"]
                         except json.JSONDecodeError:
                             continue
-        except Exception as e:
-            logger.error(f"Streaming failed: {e}")
+        except RemoteDecodeError:
             raise
+        except Exception as e:
+            logger.error(f"Streaming failed for anthropic: {e}")
+            raise RemoteDecodeError(
+                f"anthropic streaming failed: {e}",
+                provider="anthropic",
+            ) from e
 
 
 class GoogleDecoder(RemoteDecoder):
@@ -299,17 +412,15 @@ class GoogleDecoder(RemoteDecoder):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
         logger.info(f"Google request to {self.model}")
         data = self.client.remote_post(url, {}, self._content(compact_input, user_query))
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        return _extract_content_from_google(data)
 
     def decode_stream(self, compact_input: str, user_query: str) -> Iterator[str]:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:streamGenerateContent?key={self.api_key}"
         logger.info(f"Google streaming request to {self.model}")
         try:
-            import requests
-            response = requests.post(
-                url, json=self._content(compact_input, user_query), stream=True, timeout=120
+            response = self.client.post_stream(
+                url, {}, self._content(compact_input, user_query)
             )
-            response.raise_for_status()
             for line in response.iter_lines():
                 if line:
                     try:
@@ -320,9 +431,14 @@ class GoogleDecoder(RemoteDecoder):
                                     yield part["text"]
                     except json.JSONDecodeError:
                         continue
-        except Exception as e:
-            logger.error(f"Streaming failed: {e}")
+        except RemoteDecodeError:
             raise
+        except Exception as e:
+            logger.error(f"Streaming failed for google: {e}")
+            raise RemoteDecodeError(
+                f"google streaming failed: {e}",
+                provider="google",
+            ) from e
 
 
 class OllamaRemoteDecoder(RemoteDecoder):
@@ -343,16 +459,16 @@ class OllamaRemoteDecoder(RemoteDecoder):
     def decode_stream(self, compact_input: str, user_query: str) -> Iterator[str]:
         logger.info(f"Ollama streaming request to {self.config.remote_model}")
         try:
-            import requests
-            url = f"{self.config.ollama_base_url}/api/generate"
-            payload = {
-                "model": self.config.remote_model,
-                "prompt": f"{SYSTEM_PROMPT}\n\n[SCENE DATA]: {compact_input}\n\n[QUESTION]: {user_query}\n\nAnswer:",
-                "stream": True,
-                "options": {"temperature": 0.3, "num_predict": 500},
-            }
-            response = requests.post(url, json=payload, stream=True, timeout=120)
-            response.raise_for_status()
+            response = self.client.post_stream(
+                f"{self.config.ollama_base_url}/api/generate",
+                {},
+                {
+                    "model": self.config.remote_model,
+                    "prompt": f"{SYSTEM_PROMPT}\n\n[SCENE DATA]: {compact_input}\n\n[QUESTION]: {user_query}\n\nAnswer:",
+                    "stream": True,
+                    "options": {"temperature": 0.3, "num_predict": 500},
+                },
+            )
             for line in response.iter_lines():
                 if line:
                     try:
@@ -361,9 +477,14 @@ class OllamaRemoteDecoder(RemoteDecoder):
                             yield data["response"]
                     except json.JSONDecodeError:
                         continue
-        except Exception as e:
-            logger.error(f"Streaming failed: {e}")
+        except RemoteDecodeError:
             raise
+        except Exception as e:
+            logger.error(f"Streaming failed for ollama: {e}")
+            raise RemoteDecodeError(
+                f"ollama streaming failed: {e}",
+                provider="ollama",
+            ) from e
 
 
 class BedrockDecoder(RemoteDecoder):
@@ -392,9 +513,32 @@ class BedrockDecoder(RemoteDecoder):
                 body=json.dumps(body), modelId=self.model_id,
                 contentType="application/json", accept="application/json",
             )
-            return json.loads(response["body"].read())["content"][0]["text"]
+            result = json.loads(response["body"].read())
+            content_blocks = result.get("content", [])
+            if not content_blocks:
+                raise RemoteDecodeError(
+                    "Bedrock returned no content blocks",
+                    provider="bedrock",
+                )
+            texts = [b.get("text", "") for b in content_blocks if b.get("text")]
+            text = " ".join(texts).strip()
+            if not text:
+                raise RemoteDecodeError(
+                    "Bedrock returned empty text content",
+                    provider="bedrock",
+                )
+            return text
         except ImportError:
             raise ImportError("boto3 is required for AWS Bedrock. Install with: pip install boto3")
+        except RemoteDecodeError:
+            raise
+        except Exception as e:
+            if "boto3" not in str(type(e).__module__):
+                raise RemoteDecodeError(
+                    f"Bedrock decode failed: {e}",
+                    provider="bedrock",
+                ) from e
+            raise
 
     def decode_stream(self, compact_input: str, user_query: str) -> Iterator[str]:
         try:
@@ -413,6 +557,13 @@ class BedrockDecoder(RemoteDecoder):
                         yield chunk["delta"]["text"]
         except ImportError:
             raise ImportError("boto3 is required for AWS Bedrock. Install with: pip install boto3")
+        except RemoteDecodeError:
+            raise
+        except Exception as e:
+            raise RemoteDecodeError(
+                f"Bedrock streaming failed: {e}",
+                provider="bedrock",
+            ) from e
 
 
 def create_decoder(config: PipelineConfig, client: FastClient = None) -> RemoteDecoder:

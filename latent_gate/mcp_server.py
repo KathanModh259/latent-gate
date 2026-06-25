@@ -30,6 +30,7 @@ except ImportError as e:
     raise ImportError("MCP package not installed. Install with: pip install mcp") from e
 
 from latent_gate import LatentGatePipeline, PipelineConfig
+from latent_gate.remote_decoder import RemoteDecodeError
 from typing import Optional
 
 logger = logging.getLogger("latent_gate_mcp")
@@ -240,9 +241,16 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 text=(f"Error: Ollama not running. Start with 'ollama serve'. " f"Details: {e}"),
             )
         ]
+    except RemoteDecodeError as e:
+        return [
+            types.TextContent(
+                type="text",
+                text=f"Error: LLM provider failed - {e}",
+            )
+        ]
     except Exception as e:
         logger.exception("Tool call failed")
-        return [types.TextContent(type="text", text=f"Error: {e}")]
+        return [types.TextContent(type="text", text=f"Error: {type(e).__name__}: {e}")]
 
 
 # ============================================================================
@@ -258,7 +266,7 @@ async def main():
             write_stream,
             InitializationOptions(
                 server_name="latent-gate",
-                server_version="0.3.0",
+                server_version="1.2.2",
                 capabilities=app.get_capabilities(
                     notification_options=NotificationOptions(),
                     experimental_capabilities={},
