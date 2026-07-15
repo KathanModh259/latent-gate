@@ -1,18 +1,19 @@
-# LatentGate Security Policy
+# Security Policy
 
 ## Supported Versions
 
-Only the latest release version of LatentGate is supported. Please keep your package updated.
+Use this section to tell people about which versions of your project are
+currently being supported with security updates.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| >=1.2.x | :white_check_mark: |
-| <1.2.x  | :x:                |
+| 1.2.x   | :white_check_mark: |
+| < 1.2   | :x:                |
 
 ## Reporting a Vulnerability
 
-We take security seriously. If you discover a vulnerability in LatentGate, please report it immediately rather than opening a public issue.
+Use this section to tell people how to report a vulnerability.
 
-Please report any security concerns or vulnerability disclosures to **kathanmodh25@gmail.com**.
+Please report any security concerns or vulnerability disclosures to **kathanmodh25@gmail.com** instead of creating a public issue.
 
-We will evaluate the issue and respond with a planned patch/vulnerability fix timeline within 48 hours.
+You can expect an initial update on the reported vulnerability within 48 hours. If the vulnerability is accepted, we will publish a patch release with a security fix and attribute credit to you in the release notes. If it is declined, we will explain the reasoning in detail.
