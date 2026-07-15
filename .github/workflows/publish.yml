@@ -8,6 +8,9 @@ on:
       version:
         description: 'Version to publish (e.g., 0.5.0)'
         required: false
+permissions:
+  contents: write
+  packages: write
 
 jobs:
   pypi:

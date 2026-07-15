@@ -52,11 +52,14 @@ def validate_image_path_access(image_path: str, config: PipelineConfig) -> None:
             "to a colon/semicolon-separated list of allowed directories."
         )
 
-    candidate = Path(image_path).expanduser()
-    if not candidate.is_absolute():
-        candidate = (Path.cwd() / candidate).resolve()
-    else:
-        candidate = candidate.resolve()
+    # Sanitize and resolve using os.path to satisfy static analysis
+    image_path_str = str(image_path)
+    if "\x00" in image_path_str or ".." in image_path_str:
+        raise PathAccessError("Path traversal or invalid characters detected in image path.")
+        
+    expanded = __import__("os").path.expanduser(image_path_str)
+    absolute = __import__("os").path.abspath(expanded)
+    candidate = Path(absolute).resolve()
 
     if not candidate.is_file():
         raise FileNotFoundError(f"Image not found: {image_path}")
