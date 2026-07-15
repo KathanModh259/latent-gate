@@ -41,6 +41,10 @@ class SelectiveDecoder:
     If the similarity exceeds the threshold, the previous API response
     is reused — saving an expensive cloud LLM call.
 
+    Thread Safety:
+        This class is NOT thread-safe on its own. Callers must provide
+        external synchronization (e.g., LatentGatePipeline uses a state_lock).
+
     Attributes:
         threshold: Similarity above which frames are considered "same" (0-1).
         call_count: Number of actual API calls made.

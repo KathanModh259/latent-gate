@@ -48,7 +48,8 @@ class ProcessorPlugin(ABC):
     version: str = "1.0.0"
 
     def __init__(self, config: Optional[PipelineConfig] = None):
-        self.config = config or PipelineConfig()
+        from latent_gate.config_loader import get_config
+        self.config = config or get_config()
 
     @abstractmethod
     def process(self, *args, **kwargs) -> SemanticPayload:
@@ -123,7 +124,8 @@ class PluginManager:
     """
 
     def __init__(self, config: Optional[PipelineConfig] = None):
-        self.config = config or PipelineConfig()
+        from latent_gate.config_loader import get_config
+        self.config = config or get_config()
         self._plugins: Dict[str, ProcessorPlugin] = {}
         self._plugin_classes: Dict[str, Type[ProcessorPlugin]] = {}
 

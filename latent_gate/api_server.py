@@ -21,14 +21,18 @@ Requires:
 
 import logging
 import os
+import sys
 import time
 import tempfile
+import asyncio
+from pathlib import Path
 from typing import Optional, List
 from contextlib import asynccontextmanager
 from collections import defaultdict
 
 try:
-    from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
+    from fastapi import FastAPI, HTTPException, APIRouter, UploadFile, File, Form, Request, Depends, Security
+    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
     from pydantic import BaseModel, Field
@@ -40,8 +44,19 @@ except ImportError as e:
     ) from e
 
 from latent_gate.config import PipelineConfig
+from latent_gate.config_loader import get_config
 from latent_gate.pipeline import LatentGatePipeline
 from latent_gate.remote_decoder import RemoteDecodeError
+from latent_gate.security import (
+    PathAccessError,
+    get_client_ip,
+    redact_query_result,
+    validate_conversation_length,
+    validate_documents_length,
+    validate_image_path_access,
+    validate_text_length,
+    verify_api_key,
+)
 
 logger = logging.getLogger("latent_gate.api")
 
@@ -99,6 +114,8 @@ class UniversalQueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     """Response model for all query types."""
 
+    model_config = {"extra": "ignore"}
+
     answer: str
     compact_prompt: str
     tokens_estimated: int
@@ -108,6 +125,10 @@ class QueryResponse(BaseModel):
     original_tokens: Optional[int] = None
     compression_ratio: Optional[str] = None
     tokens_saved: Optional[int] = None
+    selective_decoding_stats: Optional[dict] = None
+    dedup_stats: Optional[dict] = None
+    offline_first: Optional[bool] = None
+    payload: Optional[dict] = None
 
 
 class StatsResponse(BaseModel):
@@ -139,6 +160,7 @@ total_tokens_saved: int = 0
 _request_counts: dict = defaultdict(list)  # IP -> [timestamps] for rate limiting
 RATE_LIMIT_WINDOW = 60  # seconds
 RATE_LIMIT_MAX = 100  # requests per window
+_RATE_LIMIT_MAX_IPS = 50_000  # max tracked IPs to prevent memory exhaustion
 
 
 # ============================================================================
@@ -154,6 +176,19 @@ async def lifespan(app: FastAPI):
     # Startup
     start_time = time.time()
     config = app.state.config
+    
+    host = os.getenv("LATENTGATE_HOST", "127.0.0.1")
+    if host == "0.0.0.0" and not os.getenv("LATENTGATE_API_KEY"):
+        logger.warning(
+            "\n" + "!" * 80 + "\n"
+            "SECURITY WARNING: Binding to 0.0.0.0 without LATENTGATE_API_KEY set.\n"
+            "Your API is completely unauthenticated and accessible to anyone on your network.\n"
+            "Set LATENTGATE_API_KEY in your environment to secure the server.\n"
+            + "!" * 80
+        )
+
+    app.state.request_semaphore = asyncio.Semaphore(config.max_concurrent_requests)
+    app.state.stats_lock = asyncio.Lock()
     pipeline = LatentGatePipeline(config, preload=True)
     logger.info("LatentGate API server started")
 
@@ -167,6 +202,8 @@ async def lifespan(app: FastAPI):
 
 def _sanitize_error(e: Exception) -> str:
     """Convert exception to user-safe error message."""
+    if isinstance(e, PathAccessError):
+        return str(e)
     if isinstance(e, FileNotFoundError):
         return "The requested file was not found."
     if isinstance(e, PermissionError):
@@ -184,10 +221,30 @@ def _sanitize_error(e: Exception) -> str:
     return "An internal error occurred. Please try again later."
 
 
+def _path_access_http_error(e: PathAccessError) -> HTTPException:
+    detail = str(e)
+    if "disabled" in detail.lower():
+        status = 403
+        detail = (
+            "Image path queries disabled by default. Set LATENTGATE_ALLOWED_IMAGE_ROOTS "
+            "to enable, or use /query/image/upload."
+        )
+    else:
+        status = 403
+    return HTTPException(status_code=status, detail=detail)
+
+
+def _validate_image_path(image_path: str, config: PipelineConfig) -> None:
+    try:
+        validate_image_path_access(image_path, config)
+    except PathAccessError as e:
+        raise _path_access_http_error(e) from e
+
+
 def _check_rate_limit(request: Request) -> None:
     """Simple in-memory rate limiter per IP with periodic cleanup."""
     global _last_rate_limit_cleanup
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
     now = time.time()
 
     # Periodic cleanup of stale IPs (every 5 minutes)
@@ -201,6 +258,11 @@ def _check_rate_limit(request: Request) -> None:
             del _request_counts[ip]
         _last_rate_limit_cleanup = now
 
+    if len(_request_counts) >= _RATE_LIMIT_MAX_IPS and client_ip not in _request_counts:
+        raise HTTPException(
+            status_code=429,
+            detail="Server is under heavy load. Please try again later.",
+        )
     _request_counts[client_ip] = [
         t for t in _request_counts[client_ip] if now - t < RATE_LIMIT_WINDOW
     ]
@@ -212,15 +274,43 @@ def _check_rate_limit(request: Request) -> None:
     _request_counts[client_ip].append(now)
 
 
+async def _run_pipeline_call(func, *args, **kwargs):
+    """Run blocking pipeline work off the event loop with bounded concurrency."""
+    semaphore = app.state.request_semaphore
+    async with semaphore:
+        return await asyncio.to_thread(func, *args, **kwargs)
+
+
+async def _record_query(result: dict) -> None:
+    """Update process-local stats without racing concurrent requests."""
+    global query_count, total_tokens_saved
+    async with app.state.stats_lock:
+        query_count += 1
+        if "tokens_saved" in result:
+            total_tokens_saved += result["tokens_saved"]
+
+
+def _docs_enabled() -> bool:
+    if os.getenv("LATENTGATE_DISABLE_DOCS", "").lower() in ("true", "1", "yes"):
+        return False
+    if os.getenv("LATENTGATE_API_KEY"):
+        return os.getenv("LATENTGATE_ENABLE_DOCS", "").lower() in ("true", "1", "yes")
+    return True
+
+
 def create_app(config: Optional[PipelineConfig] = None) -> FastAPI:
     """Create and configure the FastAPI application."""
-    global pipeline, start_time
+    from latent_gate import __version__
 
-    app = FastAPI(
+    docs_enabled = _docs_enabled()
+    new_app = FastAPI(
         title="LatentGate API",
         description="Local-first vision-language pipeline API. Compress images, text, and documents locally before sending to cloud LLMs.",
-        version="1.2.2",
+        version=__version__,
         lifespan=lifespan,
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
     )
 
     # CORS — configurable origins in production
@@ -228,18 +318,18 @@ def create_app(config: Optional[PipelineConfig] = None) -> FastAPI:
     if cors_origins_str:
         cors_origins = [o.strip() for o in cors_origins_str.split(",") if o.strip()]
     else:
-        cors_origins = ["*"]
+        cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]  # Default to local frontend
 
-    app.add_middleware(
+    new_app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
-        allow_credentials=True,
+        allow_credentials=cors_origins != ["*"],
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
     # Global exception handler for unhandled errors
-    @app.exception_handler(Exception)
+    @new_app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         logger.error(f"Unhandled exception: {exc}", exc_info=True)
         return JSONResponse(
@@ -247,15 +337,34 @@ def create_app(config: Optional[PipelineConfig] = None) -> FastAPI:
             content={"detail": "An internal error occurred. Please try again later."},
         )
 
-    # Store config for later use
-    app.state.config = config or PipelineConfig()
+    # Store config for later use (env + config file overrides)
+    new_app.state.config = config or get_config()
 
-    return app
+    new_app.include_router(public_router)
+    new_app.include_router(api_router)
+    return new_app
 
 
 # ============================================================================
 # Default app instance
 # ============================================================================
+
+security = HTTPBearer(auto_error=False)
+
+def _verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security)):
+    expected_key = os.getenv("LATENTGATE_API_KEY")
+    provided = credentials.credentials if credentials else None
+    if not verify_api_key(provided, expected_key):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API Key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return True
+
+
+public_router = APIRouter()
+api_router = APIRouter(dependencies=[Depends(_verify_api_key)])
 
 app = create_app()
 
@@ -265,38 +374,43 @@ app = create_app()
 # ============================================================================
 
 
-@app.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Health check endpoint."""
+@public_router.get("/health", response_model=HealthResponse)
+async def health_check(request: Request):
+    """Unauthenticated health check for load balancers and Docker."""
+    _check_rate_limit(request)
+
     ollama_connected = False
     models_loaded = False
+    detailed = not os.getenv("LATENTGATE_API_KEY")
 
-    try:
-        import asyncio
-        import requests
+    if detailed:
+        try:
+            import requests
 
-        def _check_ollama():
-            resp = requests.get(
-                f"{app.state.config.ollama_base_url}/api/tags", timeout=3
-            )
-            if resp.status_code == 200:
-                models = resp.json().get("models", [])
-                return True, len(models) > 0
-            return False, False
+            def _check_ollama():
+                resp = requests.get(
+                    f"{app.state.config.ollama_base_url}/api/tags", timeout=3
+                )
+                if resp.status_code == 200:
+                    models = resp.json().get("models", [])
+                    return True, len(models) > 0
+                return False, False
 
-        ollama_connected, models_loaded = await asyncio.to_thread(_check_ollama)
-    except Exception:
-        pass
+            ollama_connected, models_loaded = await asyncio.to_thread(_check_ollama)
+        except Exception:
+            pass
+
+    from latent_gate import __version__
 
     return HealthResponse(
         status="healthy",
-        version="1.2.2",
+        version=__version__ if detailed else "protected",
         ollama_connected=ollama_connected,
         models_loaded=models_loaded,
     )
 
 
-@app.get("/stats", response_model=StatsResponse)
+@api_router.get("/stats", response_model=StatsResponse)
 async def get_stats(request: Request):
     """Get usage statistics."""
     global query_count, total_tokens_saved
@@ -310,7 +424,7 @@ async def get_stats(request: Request):
     )
 
 
-@app.post("/query/image", response_model=QueryResponse)
+@api_router.post("/query/image", response_model=QueryResponse)
 async def query_image(request: ImageQueryRequest, http_request: Request):
     """Process an image and answer a question about it."""
     global pipeline, query_count, total_tokens_saved
@@ -320,13 +434,11 @@ async def query_image(request: ImageQueryRequest, http_request: Request):
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
 
     try:
-        result = pipeline.query(request.image_path, request.question)
+        _validate_image_path(request.image_path, app.state.config)
+        result = await _run_pipeline_call(pipeline.query, request.image_path, request.question)
+        await _record_query(result)
 
-        query_count += 1
-        if "tokens_saved" in result:
-            total_tokens_saved += result["tokens_saved"]
-
-        return QueryResponse(**result)
+        return QueryResponse(**redact_query_result(result))
 
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=_sanitize_error(e))
@@ -339,7 +451,7 @@ async def query_image(request: ImageQueryRequest, http_request: Request):
         raise HTTPException(status_code=500, detail=_sanitize_error(e))
 
 
-@app.post("/query/text", response_model=QueryResponse)
+@api_router.post("/query/text", response_model=QueryResponse)
 async def query_text(request: TextQueryRequest, http_request: Request):
     """Compress text and query the remote LLM."""
     global pipeline, query_count, total_tokens_saved
@@ -349,13 +461,16 @@ async def query_text(request: TextQueryRequest, http_request: Request):
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
 
     try:
-        result = pipeline.query_text(request.text, request.question, request.mode)
+        validate_text_length(request.text)
+        result = await _run_pipeline_call(
+            pipeline.query_text,
+            request.text,
+            request.question,
+            request.mode,
+        )
+        await _record_query(result)
 
-        query_count += 1
-        if "tokens_saved" in result:
-            total_tokens_saved += result["tokens_saved"]
-
-        return QueryResponse(**result)
+        return QueryResponse(**redact_query_result(result))
 
     except (ConnectionError, TimeoutError, PermissionError) as e:
         raise HTTPException(status_code=502, detail=_sanitize_error(e))
@@ -366,7 +481,7 @@ async def query_text(request: TextQueryRequest, http_request: Request):
         raise HTTPException(status_code=500, detail=_sanitize_error(e))
 
 
-@app.post("/query/conversation", response_model=QueryResponse)
+@api_router.post("/query/conversation", response_model=QueryResponse)
 async def query_conversation(request: ConversationQueryRequest, http_request: Request):
     """Compress conversation history and ask a new question."""
     global pipeline, query_count, total_tokens_saved
@@ -376,11 +491,12 @@ async def query_conversation(request: ConversationQueryRequest, http_request: Re
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
 
     try:
-        result = pipeline.query_conversation(request.messages, request.new_question)
-
-        query_count += 1
-        if "tokens_saved" in result:
-            total_tokens_saved += result["tokens_saved"]
+        result = await _run_pipeline_call(
+            pipeline.query_conversation,
+            request.messages,
+            request.new_question,
+        )
+        await _record_query(result)
 
         return QueryResponse(**result)
 
@@ -393,7 +509,7 @@ async def query_conversation(request: ConversationQueryRequest, http_request: Re
         raise HTTPException(status_code=500, detail=_sanitize_error(e))
 
 
-@app.post("/query/documents", response_model=QueryResponse)
+@api_router.post("/query/documents", response_model=QueryResponse)
 async def query_documents(request: DocumentsQueryRequest, http_request: Request):
     """Compress RAG documents and answer a question."""
     global pipeline, query_count, total_tokens_saved
@@ -403,11 +519,12 @@ async def query_documents(request: DocumentsQueryRequest, http_request: Request)
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
 
     try:
-        result = pipeline.query_documents(request.documents, request.question)
-
-        query_count += 1
-        if "tokens_saved" in result:
-            total_tokens_saved += result["tokens_saved"]
+        result = await _run_pipeline_call(
+            pipeline.query_documents,
+            request.documents,
+            request.question,
+        )
+        await _record_query(result)
 
         return QueryResponse(**result)
 
@@ -420,7 +537,7 @@ async def query_documents(request: DocumentsQueryRequest, http_request: Request)
         raise HTTPException(status_code=500, detail=_sanitize_error(e))
 
 
-@app.post("/query/universal", response_model=QueryResponse)
+@api_router.post("/query/universal", response_model=QueryResponse)
 async def query_universal(request: UniversalQueryRequest, http_request: Request):
     """Universal query endpoint - auto-detects input type."""
     global pipeline, query_count, total_tokens_saved
@@ -430,15 +547,15 @@ async def query_universal(request: UniversalQueryRequest, http_request: Request)
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
 
     try:
-        result = pipeline.query_universal(
+        if request.image:
+            _validate_image_path_access(request.image, app.state.config)
+        result = await _run_pipeline_call(
+            pipeline.query_universal,
             text=request.text,
             image=request.image,
             question=request.question,
         )
-
-        query_count += 1
-        if "tokens_saved" in result:
-            total_tokens_saved += result["tokens_saved"]
+        await _record_query(result)
 
         return QueryResponse(**result)
 
@@ -453,7 +570,7 @@ async def query_universal(request: UniversalQueryRequest, http_request: Request)
         raise HTTPException(status_code=500, detail=_sanitize_error(e))
 
 
-@app.post("/query/image/upload", response_model=QueryResponse)
+@api_router.post("/query/image/upload", response_model=QueryResponse)
 async def query_image_upload(
     file: UploadFile = File(...),
     question: str = Form(...),
@@ -490,12 +607,8 @@ async def query_image_upload(
             tmp.write(content)
             tmp_path = tmp.name
 
-        result = pipeline.query(tmp_path, question)
-
-        global query_count, total_tokens_saved
-        query_count += 1
-        if "tokens_saved" in result:
-            total_tokens_saved += result["tokens_saved"]
+        result = await _run_pipeline_call(pipeline.query, tmp_path, question)
+        await _record_query(result)
 
         return QueryResponse(**result)
 
@@ -537,7 +650,7 @@ class CompressResponse(BaseModel):
     processing_time_ms: float
 
 
-@app.post("/compress", response_model=CompressResponse)
+@api_router.post("/compress", response_model=CompressResponse)
 async def compress_prompt(request: CompressRequest, http_request: Request):
     """Compress a verbose prompt without calling the cloud LLM."""
     global pipeline
@@ -547,7 +660,7 @@ async def compress_prompt(request: CompressRequest, http_request: Request):
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
 
     try:
-        result = pipeline.compress_prompt(request.text)
+        result = await _run_pipeline_call(pipeline.compress_prompt, request.text)
         return CompressResponse(**result)
     except (ConnectionError, TimeoutError) as e:
         raise HTTPException(status_code=502, detail=_sanitize_error(e))

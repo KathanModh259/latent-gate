@@ -22,7 +22,7 @@ import sys
 import json
 import argparse
 
-from latent_gate.config import PipelineConfig
+from latent_gate.config import PipelineConfig, DEFAULT_REMOTE_MODELS
 from latent_gate.pipeline import LatentGatePipeline
 
 
@@ -67,6 +67,21 @@ def main():
         action="store_true",
         help="Compress prompt only (no LLM call). Shows token savings.",
     )
+    parser.add_argument(
+        "--benchmark",
+        action="store_true",
+        help="Run text compression benchmark cases and print production metrics.",
+    )
+    parser.add_argument(
+        "--benchmark-file",
+        default="",
+        help="JSONL benchmark file. Each line needs name and text; question/mode optional.",
+    )
+    parser.add_argument(
+        "--benchmark-output",
+        default="",
+        help="Write benchmark report JSON to this path.",
+    )
 
     # Provider settings
     parser.add_argument(
@@ -79,9 +94,12 @@ def main():
         help="Remote LLM provider (default: ollama)",
     )
     parser.add_argument("--vision-model", default="llava:7b", help="Ollama vision model")
-    parser.add_argument("--predictor-model", default="phi3:mini", help="Ollama text model")
+    parser.add_argument("--predictor-model", default="llama3:8b", help="Ollama text model")
     parser.add_argument("--remote-model", default="", help="Remote model name")
-    parser.add_argument("--api-key", default="", help="API key for cloud provider")
+    parser.add_argument(
+        "--api-key", default="",
+        help="API key for cloud provider (WARNING: visible in shell history — prefer env vars)",
+    )
     parser.add_argument("--ollama-url", default="http://localhost:11434", help="Ollama server URL")
 
     # Compression settings
@@ -101,18 +119,51 @@ def main():
 
     # ---- Determine remote model default ----
     if not args.remote_model:
-        defaults = {
-            "openai": "gpt-4o-mini",
-            "anthropic": "claude-sonnet-4-20250514",
-            "google": "gemini-2.0-flash",
-            "ollama": "phi3:mini",
-            "groq": "llama-3.3-70b-versatile",
-            "deepseek": "deepseek-chat",
-            "together": "meta-llama/Llama-3-70b-chat-hf",
-            "azure": "gpt-4o-mini",
-            "bedrock": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-        }
-        args.remote_model = defaults.get(args.provider, "gpt-4o-mini")
+        args.remote_model = DEFAULT_REMOTE_MODELS.get(args.provider, "gpt-4o-mini")
+
+    if args.benchmark:
+        from latent_gate.benchmark import load_cases, run_text_benchmark, write_report
+
+        config = PipelineConfig(
+            ollama_base_url=args.ollama_url,
+            predictor_model=args.predictor_model,
+            remote_provider=args.provider,
+            remote_model=args.remote_model,
+            remote_api_key=args.api_key,
+            enable_caching=not args.no_cache,
+            log_level="DEBUG" if args.verbose else "WARNING",
+        )
+        try:
+            cases = load_cases(args.benchmark_file)
+            report = run_text_benchmark(config, cases)
+            if args.benchmark_output:
+                write_report(report, args.benchmark_output)
+        except Exception as e:
+            print(f"Benchmark Error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        if args.json:
+            print(json.dumps(report, indent=2, default=str))
+        else:
+            summary = report["summary"]
+            print(f"\n{'=' * 55}")
+            print("  LatentGate Benchmark")
+            print(f"  Cases:           {summary['successful']}/{summary['cases']} successful")
+            print(f"  Avg latency:     {summary['average_latency_ms']}ms")
+            print(f"  p50 / p95:       {summary['p50_latency_ms']}ms / {summary['p95_latency_ms']}ms")
+            print(f"  Original tokens: ~{summary['original_tokens']}")
+            print(f"  Sent tokens:     ~{summary['compressed_tokens']}")
+            print(f"  Saved:           ~{summary['tokens_saved']} ({summary['savings_percentage']}%)")
+            print(f"  Ratio:           {summary['average_compression_ratio']}x")
+            if args.benchmark_output:
+                print(f"  Report:          {args.benchmark_output}")
+            failures = [r for r in report["results"] if not r["ok"]]
+            if failures:
+                print("\n  Failures:")
+                for failure in failures:
+                    print(f"  - {failure['name']}: {failure['error']}")
+            print(f"{'=' * 55}")
+        return
 
     # ---- Read text input ----
     text_input = args.text

@@ -8,6 +8,7 @@ from the local disk cache instead of re-running the Ollama pipeline.
 import json
 import hashlib
 import logging
+import threading
 from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
@@ -24,7 +25,7 @@ class PayloadCache:
     """
     Disk-based cache for SemanticPayloads.
 
-    Uses MD5 hash of image content as the cache key, so:
+    Uses SHA-256 hash of image content as the cache key, so:
     - Same image file = cache hit (even if renamed)
     - Modified image = cache miss (correct behavior)
     """
@@ -33,11 +34,12 @@ class PayloadCache:
         self.cache_dir = Path(config.cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._memory_cache: OrderedDict = OrderedDict()  # Bounded LRU for hot paths
+        self._lock = threading.RLock()
         logger.info(f"Cache initialized at: {self.cache_dir}")
 
     def _get_cache_key(self, image_path: str) -> str:
         """Generate a cache key from the image file's content hash."""
-        hasher = hashlib.md5()
+        hasher = hashlib.sha256()
         with open(image_path, "rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
                 hasher.update(chunk)
@@ -62,11 +64,12 @@ class PayloadCache:
         except FileNotFoundError:
             return None
 
-        # Check in-memory cache first
-        if cache_key in self._memory_cache:
-            self._memory_cache.move_to_end(cache_key)
-            logger.debug(f"Memory cache hit: {cache_key[:8]}...")
-            return self._memory_cache[cache_key]
+        with self._lock:
+            # Check in-memory cache first
+            if cache_key in self._memory_cache:
+                self._memory_cache.move_to_end(cache_key)
+                logger.debug(f"Memory cache hit: {cache_key[:8]}...")
+                return self._memory_cache[cache_key]
 
         # Check disk cache
         cache_path = self._get_cache_path(cache_key)
@@ -75,11 +78,12 @@ class PayloadCache:
                 with open(cache_path, "r") as f:
                     data = json.load(f)
                 payload = SemanticPayload.from_dict(data)
-                self._memory_cache[cache_key] = payload  # Promote to memory
-                self._memory_cache.move_to_end(cache_key)
-                # Evict oldest if over limit
-                while len(self._memory_cache) > _MAX_MEMORY_CACHE_SIZE:
-                    self._memory_cache.popitem(last=False)
+                with self._lock:
+                    self._memory_cache[cache_key] = payload  # Promote to memory
+                    self._memory_cache.move_to_end(cache_key)
+                    # Evict oldest if over limit
+                    while len(self._memory_cache) > _MAX_MEMORY_CACHE_SIZE:
+                        self._memory_cache.popitem(last=False)
                 logger.debug(f"Disk cache hit: {cache_key[:8]}...")
                 return payload
             except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as e:
@@ -112,20 +116,23 @@ class PayloadCache:
             return
 
         # Store in memory
-        self._memory_cache[cache_key] = payload
-        self._memory_cache.move_to_end(cache_key)
-        while len(self._memory_cache) > _MAX_MEMORY_CACHE_SIZE:
-            self._memory_cache.popitem(last=False)
+        with self._lock:
+            self._memory_cache[cache_key] = payload
+            self._memory_cache.move_to_end(cache_key)
+            while len(self._memory_cache) > _MAX_MEMORY_CACHE_SIZE:
+                self._memory_cache.popitem(last=False)
         logger.debug(f"Cached: {cache_key[:8]}... → {cache_path.name}")
 
     def clear(self):
         """Clear all cached entries (both memory and disk)."""
-        self._memory_cache.clear()
-        for f in self.cache_dir.glob("*.json"):
-            f.unlink()
+        with self._lock:
+            self._memory_cache.clear()
+            for f in self.cache_dir.glob("*.json"):
+                f.unlink()
         logger.info("Cache cleared")
 
     @property
     def size(self) -> int:
         """Number of entries in disk cache."""
-        return sum(1 for _ in self.cache_dir.glob("*.json"))
+        with self._lock:
+            return sum(1 for _ in self.cache_dir.glob("*.json"))

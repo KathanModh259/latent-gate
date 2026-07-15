@@ -16,6 +16,10 @@ services:
       - LATENTGATE_LOG_JSON=${LATENTGATE_LOG_JSON:-false}
       - LATENTGATE_REMOTE_PROVIDER=${LATENTGATE_REMOTE_PROVIDER:-ollama}
       - LATENTGATE_REMOTE_MODEL=${LATENTGATE_REMOTE_MODEL:-llama3:8b}
+      - LATENTGATE_VISION_MODEL=${LATENTGATE_VISION_MODEL:-llava:7b}
+      - LATENTGATE_TEXT_FAST_MODEL=${LATENTGATE_TEXT_FAST_MODEL:-phi3:mini}
+      - LATENTGATE_TEXT_SMART_MODEL=${LATENTGATE_TEXT_SMART_MODEL:-qwen2:7b}
+      - LATENTGATE_EMBEDDING_MODEL=${LATENTGATE_EMBEDDING_MODEL:-nomic-embed-text}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
@@ -58,11 +62,17 @@ services:
       - ollama-data:/root/.ollama
     entrypoint: >
       sh -c "
-        echo 'Pulling llava:7b...'
+        echo 'Pulling llava:7b (vision)...'
         ollama pull llava:7b
-        echo 'Pulling llama3:8b...'
+        echo 'Pulling phi3:mini (text-fast)...'
+        ollama pull phi3:mini
+        echo 'Pulling qwen2:7b (text-smart)...'
+        ollama pull qwen2:7b
+        echo 'Pulling nomic-embed-text (embeddings)...'
+        ollama pull nomic-embed-text
+        echo 'Pulling llama3:8b (fallback)...'
         ollama pull llama3:8b
-        echo 'Models pulled successfully!'
+        echo 'All models pulled successfully!'
       "
     networks:
       - latentgate-network

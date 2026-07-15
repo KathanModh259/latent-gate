@@ -1,0 +1,5 @@
+# Copied from repo root during packaging
+latent_gate/
+out/
+*.vsix
+node_modules/

@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "latent-gate"
-version = "1.2.2"
+version = "1.2.4"
 description = "Local-first vision-language pipeline inspired by VL-JEPA. Compress images, text, conversations, and RAG documents locally via Ollama before sending to any LLM API. Includes MCP server, FastAPI server, video processing, and more. ~80% token savings."
-readme = "README.md"
-license = {text = "MIT"}
+readme = {file = "README.md", content-type = "text/markdown"}
+license = "MIT"
 requires-python = ">=3.10"
 authors = [
     {name = "Kathan Modh"}
@@ -34,11 +34,12 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -108,6 +109,7 @@ Changelog = "https://github.com/KathanModh259/latent-gate/blob/main/CHANGELOG.md
 [project.scripts]
 latent-gate = "latent_gate.cli:main"
 latent-gate-api = "latent_gate.api_server:main"
+latent-gate-mcp = "latent_gate.mcp_server:cli_main"
 
 [tool.setuptools.packages.find]
 include = ["latent_gate*"]

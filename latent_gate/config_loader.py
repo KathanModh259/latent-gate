@@ -213,6 +213,9 @@ def _apply_env_overrides(data: Dict[str, Any], prefix: str) -> Dict[str, Any]:
     env_mapping = {
         f"{prefix}OLLAMA_BASE_URL": "ollama_base_url",
         f"{prefix}VISION_MODEL": "vision_model",
+        f"{prefix}TEXT_FAST_MODEL": "text_fast_model",
+        f"{prefix}TEXT_SMART_MODEL": "text_smart_model",
+        f"{prefix}EMBEDDING_MODEL": "embedding_model",
         f"{prefix}PREDICTOR_MODEL": "predictor_model",
         f"{prefix}REMOTE_PROVIDER": "remote_provider",
         f"{prefix}REMOTE_API_KEY": "remote_api_key",
@@ -263,19 +266,22 @@ def _apply_env_overrides(data: Dict[str, Any], prefix: str) -> Dict[str, Any]:
 
 
 def _config_to_dict(config: PipelineConfig) -> Dict[str, Any]:
-    """Convert PipelineConfig to dictionary."""
+    """Convert PipelineConfig to dictionary (excludes secrets)."""
     return {
         "ollama_base_url": config.ollama_base_url,
         "vision_model": config.vision_model,
-        "predictor_model": config.predictor_model,
+        "text_fast_model": config.text_fast_model,
+        "text_smart_model": config.text_smart_model,
+        "embedding_model": config.embedding_model,
         "remote_provider": config.remote_provider,
-        "remote_api_key": config.remote_api_key,
         "remote_model": config.remote_model,
         "remote_base_url": config.remote_base_url,
         "max_local_summary_tokens": config.max_local_summary_tokens,
         "enable_caching": config.enable_caching,
         "cache_dir": config.cache_dir,
         "log_level": config.log_level,
+        "max_image_dimension": config.max_image_dimension,
+        "max_concurrent_requests": config.max_concurrent_requests,
         "selective_decoding": config.selective_decoding,
         "similarity_threshold": config.similarity_threshold,
         "use_embeddings": config.use_embeddings,
@@ -292,7 +298,12 @@ def _dict_to_config(data: Dict[str, Any]) -> PipelineConfig:
     """Convert dictionary to PipelineConfig."""
     # Filter to only valid fields
     valid_fields = {f.name for f in PipelineConfig.__dataclass_fields__.values()}
-    filtered = {k: v for k, v in data.items() if k in valid_fields}
+    filtered = {}
+    for k, v in data.items():
+        if k in valid_fields:
+            filtered[k] = v
+        else:
+            logger.warning(f"Unknown config key '{k}' — ignored (typo?)")
 
     return PipelineConfig(**filtered)
 

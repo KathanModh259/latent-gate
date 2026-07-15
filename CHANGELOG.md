@@ -5,6 +5,45 @@ All notable changes to LatentGate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.4] - 2026-07-13
+
+### Added
+
+- **Model routing layer** — `text_fast_model` (phi3:mini), `text_smart_model` (qwen2:7b), `embedding_model` (nomic-embed-text); `get_model_for_task()` and `get_fallback_chain()` for intelligent model selection
+- **Complexity detection** — `_is_complex(text)` routes long/code-heavy prompts to smart model automatically
+- **Fallback compression** — Algorithmic text compression when Ollama is unavailable (`_fallback_compress`)
+- **VS Code extension Python bundling** — `latent_gate/` source included in VSIX for standalone worker operation
+- **CI/CD** — Frontend build, VS Code extension packaging, Docker image publishing
+- **Deployment configs** — `vercel.json` for website, Helm chart, Homebrew/Winget formulas
+
+### Changed
+
+- **Config** — `predictor_model` deprecated; backward-compat maps to `text_fast_model`
+- **Docker** — `ollama-init` now pulls all 5 models (llava, phi3, qwen2, nomic-embed, llama3)
+- **Security** — CSP headers tightened (removed `unsafe-eval`); XSS fixes in web UI
+- **UI** — Loading spinner, progress bar, copy-to-clipboard button, input validation (50k char limit)
+- **Packaging** — Cleaned up repo structure (removed docs/examples/marketing from main branch)
+
+### Fixed
+
+- `python -m build` compatibility with setuptools 83+ (license expression vs classifier conflict)
+- VS Code extension worker path resolution (now uses extension directory, not parent)
+
+## [1.2.3] - 2026-07-13
+
+### Fixed
+
+- VS Code extension Python worker crash — `latent_gate/` now bundled in VSIX
+- Worker PYTHONPATH resolution for production installs
+
+## [1.2.2] - 2026-07-13
+
+### Changed
+
+- Model routing layer integrated across all processors
+- Environment variables, docker-compose, and Dockerfile updated for new models
+- All builds (website, PyPI, VSIX) verified passing
+
 ## [1.2.1] - 2026-06-24
 
 ### Changed

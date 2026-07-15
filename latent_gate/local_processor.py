@@ -12,6 +12,7 @@ import json
 import base64
 import time
 import logging
+import io
 from pathlib import Path
 
 from latent_gate.config import PipelineConfig
@@ -50,7 +51,7 @@ Format: SCENE:<type>|DESC:<1 line>|OBJECTS:<list>|ACTIONS:<list>|TEXT:<text>"""
     # ----------------------------------------------------------------
 
     @staticmethod
-    def encode_image_to_base64(image_path: str) -> str:
+    def encode_image_to_base64(image_path: str, max_dimension: int = 0) -> str:
         """Read an image file and return its base64 encoding."""
         path = Path(image_path)
         if not path.exists():
@@ -58,8 +59,49 @@ Format: SCENE:<type>|DESC:<1 line>|OBJECTS:<list>|ACTIONS:<list>|TEXT:<text>"""
         if path.suffix.lower() not in (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"):
             raise ValueError(f"Unsupported image format: {path.suffix}")
 
+        if max_dimension and max_dimension > 0:
+            resized = LocalProcessor._try_resize_image(path, max_dimension)
+            if resized:
+                return base64.b64encode(resized).decode("utf-8")
+
         with open(path, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
+
+    @staticmethod
+    def _try_resize_image(path: Path, max_dimension: int) -> bytes:
+        """Resize large images when Pillow is available; otherwise keep original bytes."""
+        try:
+            from PIL import Image
+        except ImportError:
+            return b""
+
+        try:
+            with Image.open(path) as image:
+                image.load()
+                width, height = image.size
+                longest = max(width, height)
+                if longest <= max_dimension:
+                    return b""
+
+                scale = max_dimension / longest
+                new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+                resample = getattr(Image, "Resampling", Image).LANCZOS
+                image = image.convert("RGB")
+                image.thumbnail(new_size, resample)
+
+                buffer = io.BytesIO()
+                image.save(buffer, format="JPEG", quality=85, optimize=True)
+                logger.debug(
+                    "Resized image before vision processing: %sx%s -> %sx%s",
+                    width,
+                    height,
+                    image.size[0],
+                    image.size[1],
+                )
+                return buffer.getvalue()
+        except Exception as e:
+            logger.debug(f"Image resize skipped for {path}: {e}")
+            return b""
 
     # ----------------------------------------------------------------
     # Stage 1: X-Encoder (Vision Extraction)
@@ -72,7 +114,10 @@ Format: SCENE:<type>|DESC:<1 line>|OBJECTS:<list>|ACTIONS:<list>|TEXT:<text>"""
         """
         logger.info(f"X-Encoder: Processing '{image_path}' with {self.config.vision_model}")
 
-        image_b64 = self.encode_image_to_base64(image_path)
+        image_b64 = self.encode_image_to_base64(
+            image_path,
+            max_dimension=self.config.max_image_dimension,
+        )
 
         raw_output = self.client.ollama_generate(
             model=self.config.vision_model,
@@ -136,7 +181,7 @@ Format: SCENE:<type>|DESC:<1 line>|OBJECTS:<list>|ACTIONS:<list>|TEXT:<text>"""
                 logger.warning(f"JSON parse failed ({e}), using Predictor LLM (slow path)")
                 prompt = self.RESTRUCTURE_PROMPT.format(raw_text=raw_extraction[:500])
                 structured = self.client.ollama_generate(
-                    model=self.config.predictor_model,
+                    model=self.config.text_smart_model,
                     prompt=prompt,
                     max_tokens=200,
                 )

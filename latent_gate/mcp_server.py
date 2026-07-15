@@ -4,14 +4,14 @@ LatentGate MCP Server
 Universal Model Context Protocol server for LatentGate.
 
 Run via:
-    python -m latent_gate.mcp_server
+    latent-gate-mcp
 
 Configure in Claude Desktop / Cursor / Cline / Continue / Zed:
 {
   "mcpServers": {
     "latent-gate": {
-      "command": "python",
-      "args": ["-m", "latent_gate.mcp_server"]
+      "command": "latent-gate-mcp",
+      "args": []
     }
   }
 }
@@ -48,14 +48,9 @@ def get_pipeline() -> LatentGatePipeline:
     """Get or create the LatentGate pipeline (singleton)."""
     global _pipeline
     if _pipeline is None:
-        config = PipelineConfig(
-            vision_model="llava:7b",
-            predictor_model="llama3:8b",
-            remote_provider="ollama",
-            remote_model="llama3:8b",
-            enable_caching=True,
-            log_level="WARNING",
-        )
+        from latent_gate.config_loader import get_config
+        config = get_config()
+        config.log_level = "WARNING"
         _pipeline = LatentGatePipeline(config, preload=True)
         logger.info("LatentGate pipeline initialized")
     return _pipeline
@@ -170,12 +165,16 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             result = pipeline.query(
                 arguments["image_path"],
                 arguments.get("question", "Describe this image"),
+                compress_only=True,
             )
+            baseline = result.get("original_tokens", 1200)
             response = {
                 "compact_payload": result["compact_prompt"],
                 "tokens_estimated": result["tokens_estimated"],
-                "tokens_saved": 1200 - result["tokens_estimated"],
-                "savings_percent": round((1 - result["tokens_estimated"] / 1200) * 100, 1),
+                "tokens_saved": result.get("tokens_saved", max(0, baseline - result["tokens_estimated"])),
+                "savings_percent": round(
+                    (1 - result["tokens_estimated"] / max(baseline, 1)) * 100, 1
+                ),
                 "extracted_data": result["payload"],
                 "answer": result["answer"],
             }
@@ -184,6 +183,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             result = pipeline.query_text(
                 arguments["text"],
                 mode=arguments.get("mode", "auto"),
+                compress_only=True,
             )
             response = {
                 "compact_payload": result["compact_prompt"],
@@ -198,6 +198,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             result = pipeline.query_conversation(
                 arguments["messages"],
                 arguments["new_question"],
+                compress_only=True,
             )
             response = {
                 "compact_payload": result["compact_prompt"],
@@ -211,6 +212,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             result = pipeline.query_documents(
                 arguments["documents"],
                 arguments["question"],
+                compress_only=True,
             )
             response = {
                 "compact_payload": result["compact_prompt"],
@@ -266,7 +268,7 @@ async def main():
             write_stream,
             InitializationOptions(
                 server_name="latent-gate",
-                server_version="1.2.2",
+                server_version=__import__("latent_gate").__version__,
                 capabilities=app.get_capabilities(
                     notification_options=NotificationOptions(),
                     experimental_capabilities={},
@@ -275,5 +277,10 @@ async def main():
         )
 
 
-if __name__ == "__main__":
+def cli_main():
+    """Console-script entry point for latent-gate-mcp."""
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    cli_main()

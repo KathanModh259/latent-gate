@@ -307,7 +307,7 @@ def translate_to_english(
     {text[:2000]}"""
 
             translation = client.ollama_generate(
-                model=config.predictor_model,
+                model=config.text_smart_model,
                 prompt=prompt,
                 max_tokens=1000,
             )
@@ -396,9 +396,9 @@ class MultiLanguageProcessor:
             config: Optional PipelineConfig
             translate_to_en: Whether to translate non-English text to English
         """
-        from latent_gate.config import PipelineConfig
+        from latent_gate.config_loader import get_config
 
-        self.config = config or PipelineConfig()
+        self.config = config or get_config()
         self.translate_to_en = translate_to_en
 
     def process(self, text: str, **kwargs) -> Tuple[str, LanguageInfo]:

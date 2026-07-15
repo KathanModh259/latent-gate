@@ -30,19 +30,24 @@ logger = logging.getLogger("latent_gate.cost")
 
 DEFAULT_PRICING = {
     "openai": {
-        "gpt-4o": {"input": 0.005, "output": 0.015},
+        "gpt-4o": {"input": 0.0025, "output": 0.01},
+        "gpt-4o-2024-11-20": {"input": 0.0025, "output": 0.01},
         "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
         "gpt-4-turbo": {"input": 0.01, "output": 0.03},
-        "gpt-3.5-turbo": {"input": 0.0005, "output": 0.0015},
+        "default": {"input": 0.0025, "output": 0.01},
     },
     "anthropic": {
         "claude-3-5-sonnet-20241022": {"input": 0.003, "output": 0.015},
+        "claude-3-5-haiku-20241022": {"input": 0.001, "output": 0.005},
         "claude-3-haiku-20240307": {"input": 0.00025, "output": 0.00125},
         "claude-sonnet-4-20250514": {"input": 0.003, "output": 0.015},
+        "default": {"input": 0.003, "output": 0.015},
     },
     "google": {
         "gemini-2.0-flash": {"input": 0.000075, "output": 0.0003},
         "gemini-1.5-pro": {"input": 0.00125, "output": 0.005},
+        "gemini-1.5-flash": {"input": 0.000075, "output": 0.0003},
+        "default": {"input": 0.00125, "output": 0.005},
     },
     "ollama": {
         "default": {"input": 0.0, "output": 0.0},  # Free local inference
@@ -51,21 +56,25 @@ DEFAULT_PRICING = {
         "llama-3.1-8b-instant": {"input": 0.00005, "output": 0.00008},
         "llama-3.1-70b-versatile": {"input": 0.00059, "output": 0.00079},
         "mixtral-8x7b-32768": {"input": 0.00024, "output": 0.00024},
+        "default": {"input": 0.00059, "output": 0.00079},
     },
     "deepseek": {
         "deepseek-chat": {"input": 0.00014, "output": 0.00028},
         "deepseek-coder": {"input": 0.00014, "output": 0.00028},
+        "default": {"input": 0.00014, "output": 0.00028},
     },
     "together": {
         "meta-llama/Llama-3-8b-chat-hf": {"input": 0.0002, "output": 0.0002},
         "meta-llama/Llama-3-70b-chat-hf": {"input": 0.0009, "output": 0.0009},
+        "default": {"input": 0.0009, "output": 0.0009},
     },
     "azure": {
-        "default": {"input": 0.005, "output": 0.015},  # Same as OpenAI
+        "default": {"input": 0.0025, "output": 0.01},  # Same as OpenAI
     },
     "bedrock": {
         "anthropic.claude-3-haiku-20240307-v1:0": {"input": 0.00025, "output": 0.00125},
         "anthropic.claude-3-sonnet-20240229-v1:0": {"input": 0.003, "output": 0.015},
+        "default": {"input": 0.003, "output": 0.015},
     },
 }
 
@@ -109,7 +118,8 @@ class CostTracker:
         self.pricing = pricing or DEFAULT_PRICING
         self.session_id = session_id or f"session_{int(time.time())}"
 
-        # Initialize database
+        # Initialize database (allow cross-thread usage for shared Pipeline instances)
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._init_db()
 
         # In-memory cache for current session
@@ -118,34 +128,35 @@ class CostTracker:
 
     def _init_db(self):
         """Initialize SQLite database."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
+        cursor = self._conn.cursor()
 
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS usage (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp REAL NOT NULL,
-                    session_id TEXT NOT NULL,
-                    query_type TEXT NOT NULL,
-                    provider TEXT NOT NULL,
-                    model TEXT NOT NULL,
-                    input_tokens INTEGER NOT NULL,
-                    output_tokens INTEGER NOT NULL,
-                    estimated_cost REAL NOT NULL,
-                    tokens_saved INTEGER NOT NULL,
-                    compression_ratio REAL NOT NULL,
-                    latency_ms REAL NOT NULL,
-                    was_cached BOOLEAN NOT NULL
-                )
-            """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                session_id TEXT NOT NULL,
+                query_type TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                estimated_cost REAL NOT NULL,
+                tokens_saved INTEGER NOT NULL,
+                compression_ratio REAL NOT NULL,
+                latency_ms REAL NOT NULL,
+                was_cached BOOLEAN NOT NULL
+            )
+        """)
 
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_session ON usage(session_id)
-            """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_session ON usage(session_id)
+        """)
 
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_timestamp ON usage(timestamp)
-            """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_timestamp ON usage(timestamp)
+        """)
+
+        self._conn.commit()
 
     def record_usage(
         self,
@@ -196,31 +207,31 @@ class CostTracker:
 
         # Persist to database
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT INTO usage (
-                        timestamp, session_id, query_type, provider, model,
-                        input_tokens, output_tokens, estimated_cost, tokens_saved,
-                        compression_ratio, latency_ms, was_cached
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        record.timestamp,
-                        record.session_id,
-                        record.query_type,
-                        record.provider,
-                        record.model,
-                        record.input_tokens,
-                        record.output_tokens,
-                        record.estimated_cost,
-                        record.tokens_saved,
-                        record.compression_ratio,
-                        record.latency_ms,
-                        record.was_cached,
-                    ),
-                )
+            cursor = self._conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO usage (
+                    timestamp, session_id, query_type, provider, model,
+                    input_tokens, output_tokens, estimated_cost, tokens_saved,
+                    compression_ratio, latency_ms, was_cached
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    record.timestamp,
+                    record.session_id,
+                    record.query_type,
+                    record.provider,
+                    record.model,
+                    record.input_tokens,
+                    record.output_tokens,
+                    record.estimated_cost,
+                    record.tokens_saved,
+                    record.compression_ratio,
+                    record.latency_ms,
+                    record.was_cached,
+                ),
+            )
+            self._conn.commit()
         except sqlite3.Error as e:
             logger.error(f"Failed to persist usage record to database: {e}")
 
@@ -535,6 +546,18 @@ class CostTracker:
             return
 
         logger.info("Cleared usage history")
+
+    def close(self):
+        """Close the database connection."""
+        if self._conn:
+            self._conn.close()
+            self._conn = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
 
 # ============================================================================

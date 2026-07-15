@@ -75,16 +75,14 @@ class FastClient:
     # ----------------------------------------------------------------
 
     def preload_models(self):
-        """
-        Warm up Ollama models so they're loaded in GPU memory.
-
-        Without this, the first request has a ~5-15s cold start
-        while Ollama loads the model. With preloading, first
-        request is as fast as subsequent ones.
-        """
+        """Warm up Ollama models so they're loaded in GPU memory."""
         models_to_load = set()
         models_to_load.add(self.config.vision_model)
-        models_to_load.add(self.config.predictor_model)
+        models_to_load.add(self.config.text_fast_model)
+        models_to_load.add(self.config.text_smart_model)
+        models_to_load.add(self.config.embedding_model)
+        if self.config.offline_first and self.config.offline_model:
+            models_to_load.add(self.config.offline_model)
         if self.config.remote_provider == "ollama":
             models_to_load.add(self.config.remote_model)
 
@@ -96,9 +94,9 @@ class FastClient:
                     json={
                         "model": model,
                         "prompt": "",
-                        "keep_alive": "10m",  # Keep in memory for 10 min
+                        "keep_alive": "10m",
                     },
-                    timeout=60,
+                    timeout=30,
                 )
                 resp.raise_for_status()
             except Exception as e:

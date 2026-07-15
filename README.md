@@ -8,16 +8,13 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.2.2-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.3.0-orange.svg)](CHANGELOG.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Ollama](https://img.shields.io/badge/Ollama-local%20LLM-black.svg)](https://ollama.com)
 [![MCP](https://img.shields.io/badge/MCP-supported-purple.svg)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/tests-62%20passed-brightgreen.svg)](tests/)
-[![Codecov](https://img.shields.io/codecov/c/github/KathanModh259/latent-gate?logo=codecov&token=YOUR_TOKEN)](https://codecov.io/gh/KathanModh259/latent-gate)
+[![Tests](https://img.shields.io/badge/tests-8%20passed-brightgreen.svg)](tests/)
 [![Downloads](https://img.shields.io/pypi/dm/latent-gate?logo=pypi)](https://pypi.org/project/latent-gate/)
-[![Discord](https://img.shields.io/discord/YOUR_SERVER_ID?logo=discord&label=Discord)](https://discord.gg/your-invite)
 [![Awesome](https://awesome.re/badge.svg)](https://awesome.re)
-[![Product Hunt](https://img.shields.io/badge/Product%20Hunt-Featured-orange)](https://www.producthunt.com/posts/latent-gate)
 
 [**Quick Start**](#quick-start) | [**Python API**](#python-api) | [**REST API**](#rest-api) | [**AI Tool Integrations**](#ai-coding-tool-integration-mcp) | [**Benchmarks**](#cost-benchmarks) | [**Contributing**](#contributing) | [**Community**](#community)
 
@@ -101,22 +98,40 @@ ollama pull llama3:8b     # Text model (required for text compression & predicti
 
 ```bash
 # Image query
-python -m latent_gate photo.jpg "What is in this image?" --provider ollama -v
+latent-gate photo.jpg "What is in this image?" --provider ollama -v
 
 # Text compression
-python -m latent_gate --text "Your long prompt here..." --provider ollama -v
+latent-gate --text "Your long prompt here..." --provider ollama -v
 
 # Text from file
-python -m latent_gate --text-file prompt.txt --provider openai -v
+latent-gate --text-file prompt.txt --provider openai -v
 
 # Image + Text combined
-python -m latent_gate photo.jpg "Analyze" --text "Extra context..." -v
+latent-gate photo.jpg "Analyze" --text "Extra context..." -v
 
 # Full JSON output
-python -m latent_gate photo.jpg "Describe" --json -v
+latent-gate photo.jpg "Describe" --json -v
+
+# Production benchmark
+latent-gate --benchmark --benchmark-output reports/benchmark.json
 
 # Start API server (requires: pip install latent-gate[api])
 latent-gate-api
+```
+
+### Production Hardening
+
+For API deployments, restrict direct image-path reads to trusted directories:
+
+```bash
+set LATENTGATE_ALLOWED_IMAGE_ROOTS=C:\safe-images;D:\datasets
+latent-gate-api
+```
+
+Benchmark before releases so speed and savings are measured, not guessed:
+
+```bash
+latent-gate --benchmark --json
 ```
 
 ---
@@ -318,6 +333,8 @@ use_embeddings: true
 enable_caching: true
 temperature: 0.1
 request_timeout: 120
+track_costs: true
+cost_db_path: "latentgate_costs.db"
 ```
 
 ```python
@@ -341,6 +358,8 @@ with LatentGatePipeline(config) as pipeline:
 | `LATENTGATE_LOG_LEVEL` | Log level | `INFO` |
 | `LATENTGATE_LOG_FILE` | Log file path | - |
 | `LATENTGATE_LOG_JSON` | JSON log format | `false` |
+| `LATENTGATE_TRACK_COSTS` | Enable cost analytics | `false` |
+| `LATENTGATE_COST_DB_PATH` | Path to SQLite DB | `latentgate_costs.db` |
 
 ### Save Config
 
@@ -413,8 +432,8 @@ Add to your tool's MCP config:
 {
   "mcpServers": {
     "latent-gate": {
-      "command": "python",
-      "args": ["-m", "latent_gate.mcp_server"]
+      "command": "latent-gate-mcp",
+      "args": []
     }
   }
 }
@@ -558,20 +577,16 @@ latent-gate/
 │   ├── plugin_system.py      # Custom processor plugins
 │   └── multilang.py          # Multi-language detection and translation
 ├── integrations/
-│   ├── mcp_server/           # Standalone MCP server
-│   ├── claude_code_skill/    # Claude Code skill + scripts
-│   ├── cursor/               # Cursor MCP config
+│   ├── agent_skills/         # Prompt compression skill + scripts
+│   ├── vscode-extension/     # VS Code extension source
+│   ├── cursor/               # Cursor rules and MCP config
 │   ├── continue_dev/         # Continue.dev config
+│   ├── langchain/            # LangChain integration wrapper
+│   ├── llamaindex/           # LlamaIndex retriever integration
 │   └── openai_functions/     # OpenAI/Anthropic function schemas
-├── examples/
-│   ├── basic_usage.py
-│   ├── text_compression.py
-│   ├── advanced_features.py
-│   ├── video_streaming.py
-│   └── ...
-├── tests/                    # 62 tests (unit + integration)
-├── vscode-extension/         # VS Code extension source
-├── docs/
+├── tests/                    # 78 tests (unit + integration)
+├── website/                  # React-based analytics dashboard & landing page
+├── deployments/              # Kubernetes Helm configs
 ├── .github/workflows/        # CI + publish workflows
 ├── Dockerfile
 ├── docker-compose.yml
@@ -583,9 +598,7 @@ latent-gate/
 
 ## Community
 
-- [**Discord**](https://discord.gg/your-invite) — Ask questions, share projects, get help
 - [**GitHub Discussions**](https://github.com/KathanModh259/latent-gate/discussions) — Feature requests, Q&A, showcases
-- [**Twitter/X**](https://x.com/your-handle) — Follow for updates and tips
 - [**Awesome Lists**](#) — Found in awesome-mcp, awesome-ollama, awesome-local-ai
 
 ---
@@ -603,8 +616,7 @@ python -m venv .venv
 source .venv/bin/activate       # Linux/macOS
 .venv\Scripts\Activate.ps1      # Windows
 
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+pip install -e ".[dev]"
 ```
 
 ### Run Tests
@@ -630,10 +642,10 @@ pytest tests/ -v
 ```bibtex
 @software{latentgate2026,
   author  = {Kathan Modh},
-  title   = {LatentGate: Local-First Vision-Language Pipeline Inspired by VL-JEPA},
+  title   = {LatentGate: Local-First Semantic Compression Pipeline},
   year    = {2026},
-  version = {1.0.0},
-  url     = {https://github.com/KathanModh259/latent-gate}
+  url     = {https://github.com/KathanModh259/latent-gate},
+  version = {1.3.0}
 }
 ```
 

@@ -12,7 +12,7 @@ import os
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import Iterator
+from typing import Iterator, Tuple
 
 from latent_gate.config import PipelineConfig
 from latent_gate.fast_client import FastClient
@@ -38,8 +38,8 @@ class RemoteDecodeError(Exception):
         self.provider = provider
 
 
-def _extract_content_from_openai(data: dict, provider: str = "openai") -> str:
-    """Safely extract content from OpenAI-compatible API response."""
+def _extract_content_from_openai(data: dict, provider: str = "openai") -> Tuple[str, dict]:
+    """Safely extract content and usage from OpenAI-compatible API response."""
     try:
         choices = data.get("choices")
         if not choices:
@@ -68,7 +68,15 @@ def _extract_content_from_openai(data: dict, provider: str = "openai") -> str:
                 f"{provider} returned empty content (finish_reason={finish_reason})",
                 provider=provider,
             )
-        return content
+        # Extract real token usage from provider response
+        raw_usage = data.get("usage", {})
+        usage = {
+            "prompt_tokens": raw_usage.get("prompt_tokens", 0),
+            "completion_tokens": raw_usage.get("completion_tokens", 0),
+            "total_tokens": raw_usage.get("total_tokens", 0),
+            "source": "provider" if raw_usage else "unavailable",
+        }
+        return content, usage
     except RemoteDecodeError:
         raise
     except Exception as e:
@@ -78,8 +86,8 @@ def _extract_content_from_openai(data: dict, provider: str = "openai") -> str:
         ) from e
 
 
-def _extract_content_from_anthropic(data: dict) -> str:
-    """Safely extract content from Anthropic API response."""
+def _extract_content_from_anthropic(data: dict) -> Tuple[str, dict]:
+    """Safely extract content and usage from Anthropic API response."""
     try:
         content_blocks = data.get("content")
         if not content_blocks:
@@ -96,7 +104,15 @@ def _extract_content_from_anthropic(data: dict) -> str:
                 "Anthropic returned empty text content",
                 provider="anthropic",
             )
-        return result
+        # Extract real token usage from Anthropic response
+        raw_usage = data.get("usage", {})
+        usage = {
+            "prompt_tokens": raw_usage.get("input_tokens", 0),
+            "completion_tokens": raw_usage.get("output_tokens", 0),
+            "total_tokens": raw_usage.get("input_tokens", 0) + raw_usage.get("output_tokens", 0),
+            "source": "provider" if raw_usage else "unavailable",
+        }
+        return result, usage
     except RemoteDecodeError:
         raise
     except Exception as e:
@@ -106,8 +122,8 @@ def _extract_content_from_anthropic(data: dict) -> str:
         ) from e
 
 
-def _extract_content_from_google(data: dict) -> str:
-    """Safely extract content from Google Gemini API response."""
+def _extract_content_from_google(data: dict) -> Tuple[str, dict]:
+    """Safely extract content and usage from Google Gemini API response."""
     try:
         candidates = data.get("candidates")
         if not candidates:
@@ -123,7 +139,15 @@ def _extract_content_from_google(data: dict) -> str:
                 "Google Gemini returned empty text",
                 provider="google",
             )
-        return result
+        # Extract real token usage from Google response (usageMetadata)
+        raw_usage = data.get("usageMetadata", {})
+        usage = {
+            "prompt_tokens": raw_usage.get("promptTokenCount", 0),
+            "completion_tokens": raw_usage.get("candidatesTokenCount", 0),
+            "total_tokens": raw_usage.get("totalTokenCount", 0),
+            "source": "provider" if raw_usage else "unavailable",
+        }
+        return result, usage
     except RemoteDecodeError:
         raise
     except Exception as e:
@@ -172,7 +196,8 @@ class RemoteDecoder(ABC):
     """Abstract base class for cloud LLM API integration."""
 
     @abstractmethod
-    def decode(self, compact_input: str, user_query: str) -> str:
+    def decode(self, compact_input: str, user_query: str) -> Tuple[str, dict]:
+        """Decode and return (answer, usage_dict)."""
         pass
 
     @abstractmethod
@@ -220,7 +245,7 @@ class OpenAICompatibleDecoder(RemoteDecoder):
             p["stream"] = True
         return p
 
-    def decode(self, compact_input: str, user_query: str) -> str:
+    def decode(self, compact_input: str, user_query: str) -> Tuple[str, dict]:
         url = f"{self.base_url}/chat/completions"
         payload = self._payload()
         payload["messages"] = _build_messages(compact_input, user_query)
@@ -293,7 +318,7 @@ class AzureOpenAIDecoder(RemoteDecoder):
     def _headers(self) -> dict:
         return {"api-key": self.api_key, "Content-Type": "application/json"}
 
-    def decode(self, compact_input: str, user_query: str) -> str:
+    def decode(self, compact_input: str, user_query: str) -> Tuple[str, dict]:
         payload = {
             "messages": _build_messages(compact_input, user_query),
             "max_tokens": 500,
@@ -354,7 +379,7 @@ class AnthropicDecoder(RemoteDecoder):
             p["stream"] = True
         return p
 
-    def decode(self, compact_input: str, user_query: str) -> str:
+    def decode(self, compact_input: str, user_query: str) -> Tuple[str, dict]:
         url = "https://api.anthropic.com/v1/messages"
         payload = self._payload()
         payload["messages"] = [{"role": "user", "content": f"[SCENE DATA]: {compact_input}\n\n[QUESTION]: {user_query}"}]
@@ -408,18 +433,20 @@ class GoogleDecoder(RemoteDecoder):
             "generationConfig": {"temperature": 0.3, "maxOutputTokens": 500},
         }
 
-    def decode(self, compact_input: str, user_query: str) -> str:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
+    def decode(self, compact_input: str, user_query: str) -> Tuple[str, dict]:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+        headers = {"x-goog-api-key": self.api_key}
         logger.info(f"Google request to {self.model}")
-        data = self.client.remote_post(url, {}, self._content(compact_input, user_query))
+        data = self.client.remote_post(url, headers, self._content(compact_input, user_query))
         return _extract_content_from_google(data)
 
     def decode_stream(self, compact_input: str, user_query: str) -> Iterator[str]:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:streamGenerateContent?key={self.api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:streamGenerateContent"
+        headers = {"x-goog-api-key": self.api_key}
         logger.info(f"Google streaming request to {self.model}")
         try:
             response = self.client.post_stream(
-                url, {}, self._content(compact_input, user_query)
+                url, headers, self._content(compact_input, user_query)
             )
             for line in response.iter_lines():
                 if line:
@@ -448,13 +475,16 @@ class OllamaRemoteDecoder(RemoteDecoder):
         self.config = config
         self.client = client or FastClient(config)
 
-    def decode(self, compact_input: str, user_query: str) -> str:
+    def decode(self, compact_input: str, user_query: str) -> Tuple[str, dict]:
         logger.info(f"Ollama remote request to {self.config.remote_model}")
-        return self.client.ollama_generate(
+        response = self.client.ollama_generate(
             model=self.config.remote_model,
             prompt=f"{SYSTEM_PROMPT}\n\n[SCENE DATA]: {compact_input}\n\n[QUESTION]: {user_query}\n\nAnswer:",
             max_tokens=500,
         )
+        # Ollama returns a string from ollama_generate; usage unavailable via this path
+        usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "source": "unavailable"}
+        return response, usage
 
     def decode_stream(self, compact_input: str, user_query: str) -> Iterator[str]:
         logger.info(f"Ollama streaming request to {self.config.remote_model}")
@@ -503,7 +533,7 @@ class BedrockDecoder(RemoteDecoder):
             "messages": [{"role": "user", "content": ""}],
         }
 
-    def decode(self, compact_input: str, user_query: str) -> str:
+    def decode(self, compact_input: str, user_query: str) -> Tuple[str, dict]:
         try:
             import boto3
             bedrock = boto3.client("bedrock-runtime", region_name=self.region)
@@ -527,7 +557,15 @@ class BedrockDecoder(RemoteDecoder):
                     "Bedrock returned empty text content",
                     provider="bedrock",
                 )
-            return text
+            # Extract real token usage from Bedrock Anthropic response
+            raw_usage = result.get("usage", {})
+            usage = {
+                "prompt_tokens": raw_usage.get("input_tokens", 0),
+                "completion_tokens": raw_usage.get("output_tokens", 0),
+                "total_tokens": raw_usage.get("input_tokens", 0) + raw_usage.get("output_tokens", 0),
+                "source": "provider" if raw_usage else "unavailable",
+            }
+            return text, usage
         except ImportError:
             raise ImportError("boto3 is required for AWS Bedrock. Install with: pip install boto3")
         except RemoteDecodeError:

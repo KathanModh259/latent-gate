@@ -10,13 +10,16 @@ class TestPipelineConfig:
     def test_default_values(self):
         config = PipelineConfig()
         assert config.vision_model == "llava:7b"
-        assert config.predictor_model == "phi3:mini"
+        assert config.predictor_model == "llama3:8b"
         assert config.remote_provider == "openai"
         assert config.remote_model == "gpt-4o-mini"
         assert config.enable_caching is True
         assert config.selective_decoding is True
         assert config.similarity_threshold == 0.85
         assert config.temperature == 0.1
+        assert config.max_image_dimension == 1280
+        assert config.max_concurrent_requests == 3
+        assert config.allowed_image_roots == []
 
     def test_custom_values(self):
         config = PipelineConfig(
@@ -55,3 +58,9 @@ class TestPipelineConfig:
         config = PipelineConfig(similarity_threshold=1.5)
         warnings = config.validate()
         assert any("threshold" in w.lower() for w in warnings)
+
+    def test_validate_production_limits(self):
+        config = PipelineConfig(max_image_dimension=100, max_concurrent_requests=0)
+        warnings = config.validate()
+        assert any("max_image_dimension" in w for w in warnings)
+        assert any("max_concurrent_requests" in w for w in warnings)

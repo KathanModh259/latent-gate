@@ -53,7 +53,7 @@ class TestPipelineQuery:
         mock_process.return_value = mock_payload
 
         # Mock remote decoding
-        mock_decode.return_value = "This is a room with a table and chair."
+        mock_decode.return_value = ("This is a room with a table and chair.", {"completion_tokens": 10})
 
         # Run pipeline
         pipeline = LatentGatePipeline(

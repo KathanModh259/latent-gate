@@ -63,7 +63,9 @@ class SemanticPayload:
             parts.append(f"Colors: {', '.join(self.dominant_colors[:3])}")
 
         compact = " | ".join(parts)
-        self.estimated_token_count = len(compact.split()) + 10  # rough estimate
+        # Update estimated token count if not already set by the pipeline
+        if self.estimated_token_count == 0:
+            self.estimated_token_count = len(compact.split()) + 10  # rough estimate
         return compact
 
     def to_dict(self) -> dict:

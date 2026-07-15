@@ -50,7 +50,8 @@ class VideoProcessor:
     def __init__(
         self, config: Optional[PipelineConfig] = None, video_config: Optional[VideoConfig] = None
     ):
-        self.config = config or PipelineConfig()
+        from latent_gate.config_loader import get_config
+        self.config = config or get_config()
         self.video_config = video_config or VideoConfig()
         self.pipeline = LatentGatePipeline(self.config, preload=True)
 

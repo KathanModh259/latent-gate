@@ -14,8 +14,9 @@ Features:
 
 import logging
 import time
+import threading
 import hashlib
-from typing import Optional
+from typing import Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import OrderedDict
 
@@ -25,6 +26,7 @@ from latent_gate.local_processor import LocalProcessor
 from latent_gate.selective_decoder import SelectiveDecoder
 from latent_gate.remote_decoder import RemoteDecoder, create_decoder
 from latent_gate.fast_client import FastClient
+from latent_gate.cost_tracker import CostTracker
 
 logger = logging.getLogger("latent_gate.pipeline")
 
@@ -51,7 +53,8 @@ class LatentGatePipeline:
     """
 
     def __init__(self, config: Optional[PipelineConfig] = None, preload: bool = True):
-        self.config = config or PipelineConfig()
+        from latent_gate.config_loader import get_config
+        self.config = config or get_config()
         self._setup_logging()
 
         # Validate
@@ -82,6 +85,13 @@ class LatentGatePipeline:
         # Semantic deduplication cache for batch processing (bounded)
         self._query_cache: OrderedDict = OrderedDict()
         self._dedup_hits: int = 0
+        self._state_lock = threading.RLock()
+
+        # Cost Tracker
+        self.tracker = None
+        if self.config.track_costs:
+            self.tracker = CostTracker(db_path=self.config.cost_db_path)
+            logger.info(f"Cost tracking enabled (DB: {self.config.cost_db_path})")
 
         # Thread pool for parallel processing
         self._executor = ThreadPoolExecutor(max_workers=3)
@@ -96,6 +106,9 @@ class LatentGatePipeline:
 
         logger.info(
             f"Pipeline ready: vision={self.config.vision_model}, "
+            f"text_fast={self.config.text_fast_model}, "
+            f"text_smart={self.config.text_smart_model}, "
+            f"embedding={self.config.embedding_model}, "
             f"remote={self.config.remote_provider}/{self.config.remote_model}"
         )
 
@@ -114,7 +127,7 @@ class LatentGatePipeline:
     # MODE 1: Image Query
     # ================================================================
 
-    def query(self, image_path: str, question: str) -> dict:
+    def query(self, image_path: str, question: str, compress_only: bool = False) -> dict:
         """Process an image and answer a question about it."""
         logger.info("=" * 50)
 
@@ -133,11 +146,14 @@ class LatentGatePipeline:
         logger.info(f"Local: ~{payload.estimated_token_count} tokens, {local_ms:.0f}ms")
 
         # Selective decoding check
-        if self.config.selective_decoding:
-            if not self.selective_decoder.should_decode(payload):
+        if self.config.selective_decoding and not compress_only:
+            with self._state_lock:
+                should_decode = self.selective_decoder.should_decode(payload)
+                previous_response = self.selective_decoder.previous_response
+            if not should_decode:
                 logger.info("Selective: reusing previous")
                 result = self._build_result(
-                    self.selective_decoder.previous_response,
+                    previous_response,
                     compact_input,
                     payload.estimated_token_count,
                     was_cached=True,
@@ -148,13 +164,17 @@ class LatentGatePipeline:
                 self._cache_result(image_path, question, result)
                 return result
 
-        logger.info("STAGE 2: Remote Decoding")
-        remote_start = time.time()
-        decoder = self._get_decoder()
-        answer = decoder.decode(compact_input, question)
-        remote_ms = (time.time() - remote_start) * 1000
+        if compress_only:
+            answer, api_usage, remote_ms = "", None, 0.0
+        else:
+            logger.info("STAGE 2: Remote Decoding")
+            remote_start = time.time()
+            decoder = self._get_decoder()
+            answer, api_usage = decoder.decode(compact_input, question)
+            remote_ms = (time.time() - remote_start) * 1000
 
-        self.selective_decoder.update(payload, answer)
+            with self._state_lock:
+                self.selective_decoder.update(payload, answer)
 
         result = self._build_result(
             answer,
@@ -165,6 +185,7 @@ class LatentGatePipeline:
             input_type="image",
             local_time_ms=local_ms,
             remote_time_ms=remote_ms,
+            api_usage=api_usage,
         )
         self._cache_result(image_path, question, result)
         return result
@@ -173,8 +194,8 @@ class LatentGatePipeline:
     # MODE 2: Text Query
     # ================================================================
 
-    def query_text(self, text: str, question: str = "", mode: str = "auto") -> dict:
-        """Compress a text prompt locally, then send to cloud LLM."""
+    def query_text(self, text: str, question: str = "", mode: str = "auto", compress_only: bool = False) -> dict:
+        """Compress a text prompt locally, then optionally send to cloud LLM."""
         logger.info("=" * 50)
         logger.info("STAGE 1: Local Text Compression")
         start = time.time()
@@ -209,12 +230,26 @@ class LatentGatePipeline:
             f"{text_payload.compressed_token_count} tokens ({local_ms:.0f}ms)"
         )
 
-        logger.info("STAGE 2: Remote Decoding")
-        remote_start = time.time()
-        final_q = question or text_payload.intent or "Process and respond."
-        decoder = self._get_decoder()
-        answer = decoder.decode(compact_input, final_q)
-        remote_ms = (time.time() - remote_start) * 1000
+        # Auto-detect compress_only: skip remote decode when mode is compress
+        # and no meaningful question is asked (generic compress requests)
+        is_compress_only = compress_only or (
+            mode == "compress" and (not question or "compress" in question.lower())
+        )
+
+        if is_compress_only:
+            answer, api_usage, remote_ms = "", None, 0.0
+        else:
+            logger.info("STAGE 2: Remote Decoding")
+            remote_start = time.time()
+            final_q = question or text_payload.intent or "Process and respond."
+            decoder = self._get_decoder()
+            try:
+                answer, api_usage = decoder.decode(compact_input, final_q)
+            except (ConnectionError, PermissionError) as e:
+                logger.warning(f"Remote decode unavailable ({e}), returning compressed only")
+                answer = f"[Remote decode skipped: {e}]"
+                api_usage = None
+            remote_ms = (time.time() - remote_start) * 1000
 
         result = self._build_result(
             answer,
@@ -227,6 +262,7 @@ class LatentGatePipeline:
             compression_ratio=text_payload.compression_ratio,
             local_time_ms=local_ms,
             remote_time_ms=remote_ms,
+            api_usage=api_usage,
         )
         self._cache_result(text, question, result)
         return result
@@ -235,7 +271,7 @@ class LatentGatePipeline:
     # MODE 2b: Conversation Compression
     # ================================================================
 
-    def query_conversation(self, messages: list, new_question: str) -> dict:
+    def query_conversation(self, messages: list, new_question: str, compress_only: bool = False) -> dict:
         """Compress conversation history + ask a new question."""
         start = time.time()
 
@@ -249,10 +285,13 @@ class LatentGatePipeline:
         compact_input = text_payload.to_compact_prompt()
         local_ms = (time.time() - start) * 1000
 
-        remote_start = time.time()
-        decoder = self._get_decoder()
-        answer = decoder.decode(compact_input, new_question)
-        remote_ms = (time.time() - remote_start) * 1000
+        if compress_only:
+            answer, api_usage, remote_ms = "", None, 0.0
+        else:
+            remote_start = time.time()
+            decoder = self._get_decoder()
+            answer, api_usage = decoder.decode(compact_input, new_question)
+            remote_ms = (time.time() - remote_start) * 1000
 
         result = self._build_result(
             answer,
@@ -265,6 +304,7 @@ class LatentGatePipeline:
             compression_ratio=text_payload.compression_ratio,
             local_time_ms=local_ms,
             remote_time_ms=remote_ms,
+            api_usage=api_usage,
         )
         self._cache_result(msg_text, new_question, result)
         return result
@@ -273,7 +313,7 @@ class LatentGatePipeline:
     # MODE 2c: RAG Document Compression
     # ================================================================
 
-    def query_documents(self, documents: list, question: str) -> dict:
+    def query_documents(self, documents: list, question: str, compress_only: bool = False) -> dict:
         """Compress RAG-retrieved documents + answer a question."""
         start = time.time()
 
@@ -287,10 +327,13 @@ class LatentGatePipeline:
         compact_input = text_payload.to_compact_prompt()
         local_ms = (time.time() - start) * 1000
 
-        remote_start = time.time()
-        decoder = self._get_decoder()
-        answer = decoder.decode(compact_input, question)
-        remote_ms = (time.time() - remote_start) * 1000
+        if compress_only:
+            answer, api_usage, remote_ms = "", None, 0.0
+        else:
+            remote_start = time.time()
+            decoder = self._get_decoder()
+            answer, api_usage = decoder.decode(compact_input, question)
+            remote_ms = (time.time() - remote_start) * 1000
 
         result = self._build_result(
             answer,
@@ -303,6 +346,7 @@ class LatentGatePipeline:
             compression_ratio=text_payload.compression_ratio,
             local_time_ms=local_ms,
             remote_time_ms=remote_ms,
+            api_usage=api_usage,
         )
         self._cache_result(doc_hash, question, result)
         return result
@@ -311,7 +355,7 @@ class LatentGatePipeline:
     # MODE 3: Universal (auto-detect) — WITH PARALLEL PROCESSING
     # ================================================================
 
-    def query_universal(self, text: str = "", image: str = "", question: str = "") -> dict:
+    def query_universal(self, text: str = "", image: str = "", question: str = "", compress_only: bool = False) -> dict:
         """
         Universal entry point — auto-detects input type.
         When both image + text provided, processes them IN PARALLEL.
@@ -344,10 +388,13 @@ class LatentGatePipeline:
 
             final_q = question or text_payload.intent or "Analyze the image and text together."
 
-            remote_start = time.time()
-            decoder = self._get_decoder()
-            answer = decoder.decode(combined, final_q)
-            remote_ms = (time.time() - remote_start) * 1000
+            if compress_only:
+                answer, api_usage, remote_ms = "", None, 0.0
+            else:
+                remote_start = time.time()
+                decoder = self._get_decoder()
+                answer, api_usage = decoder.decode(combined, final_q)
+                remote_ms = (time.time() - remote_start) * 1000
 
             return self._build_result(
                 answer,
@@ -360,12 +407,13 @@ class LatentGatePipeline:
                 compression_ratio=total_original / max(total_compressed, 1),
                 local_time_ms=local_ms,
                 remote_time_ms=remote_ms,
+                api_usage=api_usage,
             )
 
         elif has_image:
-            return self.query(image, question or "Describe this image.")
+            return self.query(image, question or "Describe this image.", compress_only=compress_only)
         elif has_text:
-            return self.query_text(text, question)
+            return self.query_text(text, question, compress_only=compress_only)
         else:
             raise ValueError("Provide at least 'text' or 'image' input.")
 
@@ -416,13 +464,15 @@ class LatentGatePipeline:
                 local_ms = (time.time() - start) * 1000
 
                 remote_start = time.time()
-                answer = remote_decoder.decode(compact_input, question)
+                answer, api_usage = remote_decoder.decode(compact_input, question)
                 remote_ms = (time.time() - remote_start) * 1000
 
                 return {
                     "answer": answer,
                     "compact_prompt": compact_input,
                     "tokens_estimated": payload.estimated_token_count,
+                    "tokens_actual": api_usage.get("total_tokens", 0) if api_usage else None,
+                    "token_source": api_usage.get("source", "unavailable") if api_usage else "unavailable",
                     "was_cached": False,
                     "payload": payload.to_dict(),
                     "input_type": "image",
@@ -676,7 +726,7 @@ class LatentGatePipeline:
     # Offline-First Mode
     # ================================================================
 
-    def _decode_offline(self, compact_input: str, question: str) -> str:
+    def _decode_offline(self, compact_input: str, question: str) -> Tuple[str, dict]:
         """
         Decode using local Ollama when offline-first is enabled.
         Falls back to remote decoder if no local decoder is available.
@@ -795,13 +845,46 @@ class LatentGatePipeline:
         compression_ratio=0.0,
         local_time_ms=0.0,
         remote_time_ms=0.0,
+        api_usage=None,
     ) -> dict:
+        
+        # Determine final token count (prefer actual from API, fallback to estimate)
+        tokens_actual = None
+        token_source = "estimated"
+        if api_usage and api_usage.get("source") == "provider":
+            tokens_actual = api_usage.get("total_tokens")
+            token_source = "provider"
+
+        if self.tracker and not was_cached and answer:
+            # Use actual if we have it, else estimate
+            used_tokens = tokens_actual or tokens_estimated
+            self.tracker.record_usage(
+                query_type=input_type,
+                provider=self.config.remote_provider,
+                model=self.config.remote_model,
+                input_tokens=used_tokens,
+                output_tokens=api_usage.get("completion_tokens", 0) if api_usage else 0,
+            )
+
+        # Include SemanticPayload.confidence if available
+        confidence = None
+        if isinstance(payload_dict, dict) and "confidence" in payload_dict:
+            confidence = payload_dict["confidence"]
+        elif input_type == "image+text" and "image" in payload_dict:
+            confidence = payload_dict["image"].get("confidence")
+
+        if confidence is not None and confidence < 0.70:
+            logger.warning(f"Low extraction confidence: {confidence:.2f}")
+
         result = {
             "answer": answer,
             "compact_prompt": compact_prompt,
             "tokens_estimated": tokens_estimated,
+            "tokens_actual": tokens_actual,
+            "token_source": token_source,
             "was_cached": was_cached,
             "payload": payload_dict,
+            "extraction_confidence": confidence,
             "input_type": input_type,
             "selective_decoding_stats": self.selective_decoder.stats,
             "offline_first": self.config.offline_first,
@@ -815,5 +898,5 @@ class LatentGatePipeline:
         if original_tokens > 0:
             result["original_tokens"] = original_tokens
             result["compression_ratio"] = f"{compression_ratio:.1f}x"
-            result["tokens_saved"] = original_tokens - tokens_estimated
+            result["tokens_saved"] = original_tokens - (tokens_actual or tokens_estimated)
         return result

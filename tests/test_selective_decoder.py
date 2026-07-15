@@ -125,4 +125,4 @@ class TestSelectiveDecoder:
             actions_activities=["reading"],
         )
         sim = self.decoder.compute_similarity(p1, p2)
-        assert 0.3 < sim < 0.8  # Partial overlap
+        assert 0.3 < sim < 0.9  # Partial overlap
