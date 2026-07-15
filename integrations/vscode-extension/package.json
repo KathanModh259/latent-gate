@@ -4,7 +4,7 @@
   "description": "Compress images, text, conversations, and documents locally via Ollama before sending to cloud LLMs. Save ~80% on token costs.",
   "version": "1.2.4",
   "publisher": "KathanModh259",
-  "license": "MIT",
+  "license": "Proprietary",
   "repository": {
     "type": "git",
     "url": "https://github.com/KathanModh259/latent-gate"

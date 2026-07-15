@@ -1,21 +1,19 @@
-MIT License
+LatentGate License Agreement
 
-Copyright (c) 2026 Kathan Modh
+Copyright (c) 2026 Kathan Modh. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Permission to Use
+Permission is hereby granted to any person obtaining a copy of this software and associated documentation files (the "Software") to run, execute, and use the Software for personal or internal business use, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+- No Redistribution: You may not copy, distribute, publish, sublicense, sell, or transfer the Software, in whole or in part, to any third party anywhere in the world under your own name or any other name.
+- No Rebranding/Rename: The name "LatentGate" and any branding associated with it remains the sole property of Kathan Modh. You may not rename, rebrand, or publish derivative works of the Software under a different name.
+- Contributions: Any modifications, changes, or improvements to the Software must be submitted as contributions directly to the official LatentGate repository at https://github.com/KathanModh259/latent-gate. You are not permitted to publish standalone forks or derivative versions of this Software as independent products.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. Ownership
+The Software, including all code, structure, architecture, ideas, and intellectual property, is owned solely and exclusively by Kathan Modh. No title or ownership rights are transferred to you under this license.
+
+3. Legal Remedy (Enforcement)
+Any unauthorized redistribution, publishing, rebranding, or copyright infringement of the Software is strictly prohibited and constitutes a violation of international copyright laws. Violators will be subject to civil and criminal penalties, including legal action for damages and injunctions ("sued").
+
+4. Disclaimers
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

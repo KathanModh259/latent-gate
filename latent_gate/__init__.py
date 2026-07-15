@@ -99,7 +99,7 @@ from latent_gate.multilang import (
 
 __version__ = "1.2.4"
 __author__ = "Kathan Modh"
-__license__ = "MIT"
+__license__ = "Proprietary"
 __url__ = "https://github.com/KathanModh259/latent-gate"
 
 __all__ = [
