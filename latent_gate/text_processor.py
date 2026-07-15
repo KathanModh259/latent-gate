@@ -377,7 +377,7 @@ Now shorten this prompt (output ONLY the shorter version, no explanation):
         )
         
         lines = text.strip().split('\n')
-        non_empty = [l for l in lines if l.strip()]
+        non_empty = [line for line in lines if line.strip()]
         
         # Extract first line as intent
         if non_empty:
@@ -427,16 +427,19 @@ Now shorten this prompt (output ONLY the shorter version, no explanation):
         # Filter lines
         skip_words = {'hi', 'hello', 'hey', 'thanks', 'thank you', 'ok', 'okay', 'sure', 'please', 'so', 'well'}
         kept = []
-        for l in lines:
-            s = l.strip()
-            if not s: continue
-            if s.lower().rstrip('!.?,') in skip_words: continue
+        for line in lines:
+            s = line.strip()
+            if not s:
+                continue
+            if s.lower().rstrip('!.?,') in skip_words:
+                continue
             kept.append(s)
         
         # Deduplicate
         deduped = []
         for k in kept:
-            if deduped and k == deduped[-1]: continue
+            if deduped and k == deduped[-1]:
+                continue
             deduped.append(k)
         
         # Combine adjacent bullet points into comma lists

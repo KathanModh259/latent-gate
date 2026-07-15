@@ -8,7 +8,7 @@ import ipaddress
 import os
 import secrets
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 from urllib.parse import urlparse
 
 from latent_gate.config import PipelineConfig

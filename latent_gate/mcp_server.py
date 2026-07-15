@@ -29,7 +29,7 @@ try:
 except ImportError as e:
     raise ImportError("MCP package not installed. Install with: pip install mcp") from e
 
-from latent_gate import LatentGatePipeline, PipelineConfig
+from latent_gate import LatentGatePipeline
 from latent_gate.remote_decoder import RemoteDecodeError
 from typing import Optional
 

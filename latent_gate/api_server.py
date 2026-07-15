@@ -21,11 +21,9 @@ Requires:
 
 import logging
 import os
-import sys
 import time
 import tempfile
 import asyncio
-from pathlib import Path
 from typing import Optional, List
 from contextlib import asynccontextmanager
 from collections import defaultdict
@@ -50,9 +48,8 @@ from latent_gate.remote_decoder import RemoteDecodeError
 from latent_gate.security import (
     PathAccessError,
     get_client_ip,
+    get_client_ip,
     redact_query_result,
-    validate_conversation_length,
-    validate_documents_length,
     validate_image_path_access,
     validate_text_length,
     verify_api_key,
@@ -75,8 +72,8 @@ _last_rate_limit_cleanup: float = 0.0
 class ImageQueryRequest(BaseModel):
     """Request model for image queries."""
 
-    image_path: str = Field(..., description="Path to the image file")
-    question: str = Field(..., description="Question about the image")
+    image_path: str = Field(..., max_length=4096, description="Path to the image file")
+    question: str = Field(..., max_length=2000, description="Question about the image")
     provider: Optional[str] = Field(None, description="Remote LLM provider override")
     model: Optional[str] = Field(None, description="Remote model override")
 
@@ -84,31 +81,31 @@ class ImageQueryRequest(BaseModel):
 class TextQueryRequest(BaseModel):
     """Request model for text queries."""
 
-    text: str = Field(..., description="Text to compress and query")
-    question: str = Field("", description="Specific question about the text")
+    text: str = Field(..., max_length=100000, description="Text to compress and query")
+    question: str = Field("", max_length=2000, description="Specific question about the text")
     mode: str = Field("auto", description="Compression mode: auto/compress/summarize/condense/code")
 
 
 class ConversationQueryRequest(BaseModel):
     """Request model for conversation queries."""
 
-    messages: List[dict] = Field(..., description="Conversation messages [{role, content}]")
-    new_question: str = Field(..., description="New question to ask")
+    messages: List[dict] = Field(..., max_length=1000, description="Conversation messages [{role, content}]")
+    new_question: str = Field(..., max_length=2000, description="New question to ask")
 
 
 class DocumentsQueryRequest(BaseModel):
     """Request model for RAG document queries."""
 
-    documents: List[str] = Field(..., description="List of document strings")
-    question: str = Field(..., description="Question about the documents")
+    documents: List[str] = Field(..., max_length=100, description="List of document strings")
+    question: str = Field(..., max_length=2000, description="Question about the documents")
 
 
 class UniversalQueryRequest(BaseModel):
     """Request model for universal queries."""
 
-    text: str = Field("", description="Text input")
-    image: str = Field("", description="Image path")
-    question: str = Field("", description="Question")
+    text: str = Field("", max_length=100000, description="Text input")
+    image: str = Field("", max_length=4096, description="Image path")
+    question: str = Field("", max_length=2000, description="Question")
 
 
 class QueryResponse(BaseModel):
@@ -168,6 +165,25 @@ _RATE_LIMIT_MAX_IPS = 50_000  # max tracked IPs to prevent memory exhaustion
 # ============================================================================
 
 
+async def _rate_limit_cleanup_loop():
+    """Background task to reap stale IPs without blocking the event loop."""
+    while True:
+        try:
+            await asyncio.sleep(_RATE_LIMIT_CLEANUP_INTERVAL)
+            now = time.time()
+            stale_threshold = now - RATE_LIMIT_WINDOW * 2
+            stale_ips = [
+                ip for ip, timestamps in _request_counts.items()
+                if not timestamps or timestamps[-1] < stale_threshold
+            ]
+            for ip in stale_ips:
+                _request_counts.pop(ip, None)
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage pipeline lifecycle."""
@@ -189,12 +205,15 @@ async def lifespan(app: FastAPI):
 
     app.state.request_semaphore = asyncio.Semaphore(config.max_concurrent_requests)
     app.state.stats_lock = asyncio.Lock()
+    app.state.cleanup_task = asyncio.create_task(_rate_limit_cleanup_loop())
     pipeline = LatentGatePipeline(config, preload=True)
     logger.info("LatentGate API server started")
 
     yield
 
     # Shutdown
+    if getattr(app.state, "cleanup_task", None):
+        app.state.cleanup_task.cancel()
     if pipeline:
         pipeline.close()
     logger.info("LatentGate API server stopped")
@@ -242,21 +261,9 @@ def _validate_image_path(image_path: str, config: PipelineConfig) -> None:
 
 
 def _check_rate_limit(request: Request) -> None:
-    """Simple in-memory rate limiter per IP with periodic cleanup."""
-    global _last_rate_limit_cleanup
+    """Simple in-memory rate limiter per IP. Cleanup is handled externally."""
     client_ip = get_client_ip(request)
     now = time.time()
-
-    # Periodic cleanup of stale IPs (every 5 minutes)
-    if now - _last_rate_limit_cleanup > _RATE_LIMIT_CLEANUP_INTERVAL:
-        stale_threshold = now - RATE_LIMIT_WINDOW * 2
-        stale_ips = [
-            ip for ip, timestamps in _request_counts.items()
-            if not timestamps or timestamps[-1] < stale_threshold
-        ]
-        for ip in stale_ips:
-            del _request_counts[ip]
-        _last_rate_limit_cleanup = now
 
     if len(_request_counts) >= _RATE_LIMIT_MAX_IPS and client_ip not in _request_counts:
         raise HTTPException(
@@ -264,7 +271,7 @@ def _check_rate_limit(request: Request) -> None:
             detail="Server is under heavy load. Please try again later.",
         )
     _request_counts[client_ip] = [
-        t for t in _request_counts[client_ip] if now - t < RATE_LIMIT_WINDOW
+        t for t in _request_counts.get(client_ip, []) if now - t < RATE_LIMIT_WINDOW
     ]
     if len(_request_counts[client_ip]) >= RATE_LIMIT_MAX:
         raise HTTPException(
@@ -397,8 +404,8 @@ async def health_check(request: Request):
                 return False, False
 
             ollama_connected, models_loaded = await asyncio.to_thread(_check_ollama)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Ollama health check suppressed error: {e}")
 
     from latent_gate import __version__
 
@@ -434,7 +441,7 @@ async def query_image(request: ImageQueryRequest, http_request: Request):
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
 
     try:
-        _validate_image_path(request.image_path, app.state.config)
+        _validate_image_path(request.image_path, http_request.app.state.config)
         result = await _run_pipeline_call(pipeline.query, request.image_path, request.question)
         await _record_query(result)
 
@@ -548,7 +555,7 @@ async def query_universal(request: UniversalQueryRequest, http_request: Request)
 
     try:
         if request.image:
-            _validate_image_path_access(request.image, app.state.config)
+            validate_image_path_access(request.image, http_request.app.state.config)
         result = await _run_pipeline_call(
             pipeline.query_universal,
             text=request.text,
@@ -681,7 +688,7 @@ def main():
     # Override from environment
     import os
 
-    host = os.getenv("LATENTGATE_HOST", "0.0.0.0")
+    host = os.getenv("LATENTGATE_HOST", "127.0.0.1")
     port = int(os.getenv("LATENTGATE_PORT", "8000"))
 
     logger.info(f"Starting LatentGate API server on {host}:{port}")

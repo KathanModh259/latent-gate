@@ -792,7 +792,7 @@ class LatentGatePipeline:
     def _query_hash(self, text: str, question: str = "") -> str:
         """Generate a hash for deduplication."""
         content = f"{text[:500]}|{question[:200]}".lower().strip()
-        return hashlib.md5(content.encode()).hexdigest()
+        return hashlib.sha256(content.encode()).hexdigest()
 
     def _is_duplicate(self, text: str, question: str = "") -> Optional[dict]:
         """Check if a query has been seen before."""
