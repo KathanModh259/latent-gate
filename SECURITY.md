@@ -13,6 +13,6 @@ Only the latest release version of LatentGate is supported. Please keep your pac
 
 We take security seriously. If you discover a vulnerability in LatentGate, please report it immediately rather than opening a public issue.
 
-Please report any security concerns or vulnerability disclosures to **kathanmodh259@gmail.com**.
+Please report any security concerns or vulnerability disclosures to **kathanmodh25@gmail.com**.
 
 We will evaluate the issue and respond with a planned patch/vulnerability fix timeline within 48 hours.
