@@ -69,6 +69,23 @@ jobs:
           /tmp/smoke/bin/python -c "import latent_gate; print(latent_gate.__version__)"
           /tmp/smoke/bin/latent-gate --help > /dev/null
 
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Build only (no push), so a broken Dockerfile fails CI instead of the release
+      - name: Build image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: latent-gate:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

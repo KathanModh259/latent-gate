@@ -47,7 +47,7 @@ Thumbs.db
 docs/
 *.md
 !README.md
-LICENSE
+# LICENSE must stay in the build context: the Dockerfile copies it into the image
 
 # Examples
 examples/
