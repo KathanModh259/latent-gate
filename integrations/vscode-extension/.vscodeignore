@@ -9,3 +9,6 @@ package-lock.json
 **/*.map
 **/*.ts
 !.vscodeignore
+# Compiled Python caches (machine/version specific)
+**/__pycache__/**
+**/*.pyc
