@@ -82,13 +82,21 @@ def test_rate_limiter(test_client):
             assert res_429.status_code == 429
 
 
-def test_default_app_registers_all_routes():
-    """Regression: app must be built after routers are populated (else every route 404s)."""
-    from latent_gate.api_server import app
+@patch("latent_gate.api_server.LatentGatePipeline")
+def test_default_app_registers_all_routes(mock_pipeline_class, test_client):
+    """Regression: app must be built after routers are populated (else every route 404s).
 
-    paths = {r.path for r in app.routes}
-    for expected in ("/health", "/compress", "/query/text", "/v1/chat/completions", "/ws/compress"):
-        assert expected in paths
+    Checked by behaviour, not by inspecting app.routes: newer FastAPI versions wrap
+    included routers, so route objects no longer expose `.path` directly.
+    """
+    with TestClient(test_client) as client:
+        assert client.get("/health").status_code == 200
+        for path in ("/compress", "/query/text", "/v1/chat/completions", "/compress/batch"):
+            # 422 = the route exists and rejected the empty body; 404 = route missing
+            assert client.post(path, json={}).status_code == 422, path
+        with client.websocket_connect("/ws/compress") as ws:
+            ws.send_json({})
+            assert ws.receive_json()["status"] == "error"
 
 
 @patch("latent_gate.api_server.LatentGatePipeline")
