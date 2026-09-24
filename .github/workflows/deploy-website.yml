@@ -31,11 +31,17 @@ jobs:
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Skip when Vercel is not configured
+        if: env.VERCEL_TOKEN == ''
+        run: echo "::notice::VERCEL_TOKEN secret not set - skipping website deploy"
+
       - name: Set up Node.js
+        if: env.VERCEL_TOKEN != ''
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -43,12 +49,15 @@ jobs:
           cache-dependency-path: website/package-lock.json
 
       - name: Install dependencies
+        if: env.VERCEL_TOKEN != ''
         run: npm ci
 
       - name: Install Vercel CLI
+        if: env.VERCEL_TOKEN != ''
         run: npm install --global vercel@latest
 
       - name: Pull Vercel environment info
+        if: env.VERCEL_TOKEN != ''
         run: |
           ENV="preview"
           if [[ "${{ github.ref }}" == "refs/heads/master" && "${{ github.event_name }}" != "workflow_dispatch" ]]; then
@@ -59,6 +68,7 @@ jobs:
           vercel pull --yes --environment=$ENV --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Build project artifacts
+        if: env.VERCEL_TOKEN != ''
         run: |
           ENV_FLAG=""
           if [[ "${{ github.ref }}" == "refs/heads/master" && "${{ github.event_name }}" != "workflow_dispatch" ]]; then
@@ -69,6 +79,7 @@ jobs:
           vercel build $ENV_FLAG --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy to Vercel
+        if: env.VERCEL_TOKEN != ''
         id: deploy
         run: |
           ENV_FLAG=""
@@ -81,5 +92,6 @@ jobs:
           echo "deployed_url=$DEPLOY_URL" >> $GITHUB_OUTPUT
 
       - name: Output deployment URL
+        if: env.VERCEL_TOKEN != ''
         run: |
           echo "Deployed to: ${{ steps.deploy.outputs.deployed_url }}"

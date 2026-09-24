@@ -134,6 +134,11 @@ target-version = ["py310"]
 line-length = 100
 target-version = "py310"
 
+[tool.ruff.lint]
+# Explicit rule set: ruff 0.16 widened its defaults, which broke CI overnight
+# without any code change. Widen deliberately, not via tool upgrades.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
