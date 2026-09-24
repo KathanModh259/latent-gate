@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "latent-gate": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["--from", "latent-gate[mcp,tokens]>=1.3.0", "latent-gate-mcp"]
+    }
+  }
+}

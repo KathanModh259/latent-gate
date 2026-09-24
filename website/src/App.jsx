@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Terminal, Zap, ChevronRight, Activity, ArrowRight, Code, Loader2, Check, Copy, AlertTriangle } from 'lucide-react';
+import React, { useState, useRef, useCallback } from 'react';
+import { Terminal, Zap, ChevronRight, Activity, ArrowRight, Code, Loader2, Check, Copy, AlertTriangle, GitCompare } from 'lucide-react';
 
 const MAX_INPUT_CHARS = parseInt(import.meta.env.VITE_MAX_INPUT_CHARS || '50000', 10);
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -13,6 +13,7 @@ function App() {
   const [copied, setCopied] = useState(false);
   const [inputError, setInputError] = useState(null);
   const [isMockMode, setIsMockMode] = useState(false);
+  const [showDiff, setShowDiff] = useState(false);
 
   const outputRef = useRef(null);
 
@@ -70,10 +71,13 @@ function App() {
 
       const data = await response.json();
       setOutputText(data.compressed_prompt || data.answer || 'Compressed output generated.');
+      const original = data.original_tokens ?? Math.ceil(inputText.length / 4);
+      const compressed = data.compressed_tokens ?? original;
       setStats({
-        original: data.original_tokens || Math.floor(inputText.length / 4),
-        compressed: data.compressed_tokens || Math.floor((inputText.length / 4) * 0.2),
-        savings: data.tokens_saved ? `${Math.round(data.tokens_saved / data.original_tokens * 100)}%` : '80%'
+        original,
+        compressed,
+        // Always the measured result, including 0% when nothing could be saved
+        savings: `${Math.round(((original - compressed) / Math.max(original, 1)) * 100)}%`
       });
     } catch (err) {
       if (err.name === 'AbortError') {
@@ -84,7 +88,7 @@ function App() {
       // Mock response if API is down
       console.log('API unavailable, using mock response:', err.message);
       setIsMockMode(true);
-      const estTokens = Math.floor(inputText.length / 4);
+      const estTokens = Math.ceil(inputText.length / 4);
       const compressed = (() => {
         const lines = inputText.split('\n');
         const skip = new Set(['', 'hi', 'hello', 'hey', 'thanks', 'thank you', 'ok', 'okay', 'sure', 'please']);
@@ -111,27 +115,67 @@ function App() {
           }
         }
         if (bullets.length) result.push(bullets.join('; '));
-        let text = result.join('\n');
-        const words = text.split(/\s+/);
-        if (words.length > 60) {
-          const splitA = Math.max(25, Math.floor(words.length * 0.35));
-          const splitB = Math.max(splitA + 5, Math.floor(words.length * 0.80));
-          text = words.slice(0, splitA).join(' ') + '\n...\n' + words.slice(splitB).join(' ');
-        }
-        return text;
+        // No word-dropping truncation: cutting the middle of a prompt deletes requirements
+        return result.join('\n');
       })();
-      const compTokens = Math.floor(compressed.split(/\s+/).length * 1.33);
+      // Same chars/4 estimate for both sides, so the ratio is at least self-consistent
+      const compTokens = Math.ceil(compressed.length / 4);
       setOutputText(compressed);
       setStats({
         original: estTokens || 0,
         compressed: compTokens || 0,
-        savings: '~80%'
+        savings: `~${Math.round(((estTokens - compTokens) / Math.max(estTokens, 1)) * 100)}% (offline estimate)`
       });
       setIsCompressing(false);
       return;
     }
     
     setIsCompressing(false);
+  };
+
+  // Generate a simple diff-like view between input and compressed output
+  const getDiffView = () => {
+    if (!inputText || !outputText) return null;
+    
+    // Simple token-level highlighting: show tokens present in input but not output
+    const getTokens = (text) => text.split(/\s+/).filter(Boolean);
+    const inputTokens = getTokens(inputText);
+    const outputTokenSet = new Set(getTokens(outputText).map(t => t.toLowerCase()));
+    
+    return (
+      <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+        <div style={{ flex: 1, backgroundColor: '#fef2f2', border: '2px solid #fecaca', padding: '0.75rem', borderRadius: '4px', fontSize: '0.75rem' }}>
+          <div className="pixel-font" style={{ color: '#dc2626', marginBottom: '0.5rem', fontSize: '0.65rem' }}>REMOVED ({inputTokens.length - outputTokenSet.size} tokens)</div>
+          <div style={{ lineHeight: '1.6', overflowY: 'auto', maxHeight: '150px' }}>
+            {outputText ? (
+              inputText.split(/\s+/).map((word, i) => {
+                const isRemoved = !outputTokenSet.has(word.toLowerCase().replace(/[.,!?;:'"]/g, ''));
+                return isRemoved ? (
+                  <span key={i} style={{ backgroundColor: '#fecaca', textDecoration: 'line-through', color: '#991b1b', margin: '0 2px', padding: '0 2px' }}>{word} </span>
+                ) : null;
+              })
+            ) : (
+              <span style={{ color: '#94a3b8' }}>Processing...</span>
+            )}
+          </div>
+        </div>
+        <div style={{ flex: 1, backgroundColor: '#f0fdf4', border: '2px solid #bbf7d0', padding: '0.75rem', borderRadius: '4px', fontSize: '0.75rem' }}>
+          <div className="pixel-font" style={{ color: '#16a34a', marginBottom: '0.5rem', fontSize: '0.65rem' }}>KEPT ({outputTokenSet.size} tokens)</div>
+          <div style={{ lineHeight: '1.6', overflowY: 'auto', maxHeight: '150px' }}>
+            {outputText ? (
+              inputText.split(/\s+/).map((word, i) => {
+                const isKept = outputTokenSet.has(word.toLowerCase().replace(/[.,!?;:'"]/g, ''));
+                return isKept ? (
+                  <span key={i} style={{ backgroundColor: '#bbf7d0', color: '#166534', margin: '0 2px', padding: '0 2px' }}>{word} </span>
+                ) : null;
+              })
+            ) : (
+              <span style={{ color: '#94a3b8' }}>Waiting...</span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const handleClear = () => {
@@ -163,7 +207,7 @@ function App() {
         
         <p style={{ fontSize: '1.2rem', color: '#64748b', maxWidth: '600px', margin: '0 auto 2.5rem auto' }}>
           A VL-JEPA-inspired pipeline that compresses images, text, and documents locally via Ollama. 
-          Send only compact semantic payloads to any LLM API — cutting token costs by ~80%.
+          Send only compact, verified payloads to any LLM API — every saving measured with a real tokenizer.
         </p>
 
         <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
@@ -265,22 +309,32 @@ function App() {
                   </span>
                 )}
                 {outputText && !isCompressing && (
-                  <button 
-                    className="pixel-btn pixel-btn-secondary" 
-                    onClick={handleCopy}
-                    style={{ padding: '0.4rem 0.8rem', fontSize: '11px', justifyContent: 'center', gap: '0.3rem' }}
-                    aria-label={copied ? 'Copied to clipboard' : 'Copy to clipboard'}
-                  >
-                    {copied ? (
-                      <>
-                        <Check size={14} /> COPIED
-                      </>
-                    ) : (
-                      <>
-                        <Copy size={14} /> COPY
-                      </>
-                    )}
-                  </button>
+                  <>
+                    <button 
+                      className="pixel-btn pixel-btn-secondary" 
+                      onClick={() => setShowDiff(!showDiff)}
+                      style={{ padding: '0.4rem 0.8rem', fontSize: '11px', justifyContent: 'center', gap: '0.3rem' }}
+                      title="Toggle diff view"
+                    >
+                      <GitCompare size={14} /> {showDiff ? 'RESULT' : 'DIFF'}
+                    </button>
+                    <button 
+                      className="pixel-btn pixel-btn-secondary" 
+                      onClick={handleCopy}
+                      style={{ padding: '0.4rem 0.8rem', fontSize: '11px', justifyContent: 'center', gap: '0.3rem' }}
+                      aria-label={copied ? 'Copied to clipboard' : 'Copy to clipboard'}
+                    >
+                      {copied ? (
+                        <>
+                          <Check size={14} /> COPIED
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={14} /> COPY
+                        </>
+                      )}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -313,6 +367,9 @@ function App() {
             </div>
 
             {/* Stats */}
+            {/* Diff View (toggle) */}
+            {showDiff && outputText && !isCompressing && getDiffView()}
+
             {stats && (
               <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: 'rgba(22, 255, 224, 0.1)', border: '2px dashed var(--primary-neon)' }}>
                 <div className="grid grid-cols-3 gap-4 text-center">
@@ -391,7 +448,7 @@ function App() {
       <footer style={{ borderTop: '2px dashed var(--border-color)', padding: '3rem 0', textAlign: 'center', marginTop: '4rem' }}>
         <div className="pixel-font" style={{ fontSize: '1.5rem', color: 'var(--primary-neon)', marginBottom: '1rem' }}>LatentGate</div>
         <p style={{ color: '#64748b', marginBottom: '2rem' }}>Process Locally. Send Smart. Pay Less.</p>
-        <p style={{ color: '#475569', fontSize: '0.9rem' }}>© 2026 Kathan Modh. Open source under MIT License.</p>
+        <p style={{ color: '#475569', fontSize: '0.9rem' }}>© 2026 Kathan Modh. Custom Proprietary License.</p>
       </footer>
     </div>
   );

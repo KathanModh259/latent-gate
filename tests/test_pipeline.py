@@ -1,7 +1,6 @@
 """Tests for LatentGatePipeline (integration-level, mocked)."""
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from latent_gate.config import PipelineConfig
 from latent_gate.pipeline import LatentGatePipeline
@@ -25,9 +24,7 @@ class TestPipelineInit:
         assert pipeline.remote_decoder is not None
 
     def test_reset_selective_decoder(self):
-        pipeline = LatentGatePipeline(
-            PipelineConfig(remote_provider="ollama", log_level="WARNING")
-        )
+        pipeline = LatentGatePipeline(PipelineConfig(remote_provider="ollama", log_level="WARNING"))
         # Manually set some state
         pipeline.selective_decoder.call_count = 5
         pipeline.selective_decoder.skip_count = 3
@@ -53,7 +50,10 @@ class TestPipelineQuery:
         mock_process.return_value = mock_payload
 
         # Mock remote decoding
-        mock_decode.return_value = ("This is a room with a table and chair.", {"completion_tokens": 10})
+        mock_decode.return_value = (
+            "This is a room with a table and chair.",
+            {"completion_tokens": 10},
+        )
 
         # Run pipeline
         pipeline = LatentGatePipeline(

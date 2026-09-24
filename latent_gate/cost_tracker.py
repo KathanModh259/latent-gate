@@ -41,7 +41,9 @@ DEFAULT_PRICING = {
         "claude-3-5-haiku-20241022": {"input": 0.001, "output": 0.005},
         "claude-3-haiku-20240307": {"input": 0.00025, "output": 0.00125},
         "claude-sonnet-4-20250514": {"input": 0.003, "output": 0.015},
-        "default": {"input": 0.003, "output": 0.015},
+        "claude-sonnet-5": {"input": 0.002, "output": 0.010},
+        "claude-haiku-4-5": {"input": 0.001, "output": 0.005},
+        "default": {"input": 0.002, "output": 0.010},
     },
     "google": {
         "gemini-2.0-flash": {"input": 0.000075, "output": 0.0003},

@@ -1,0 +1,15 @@
+{
+  "name": "latent-gate",
+  "description": "LatentGate: measured, fact-preserving token optimization for Claude.",
+  "owner": {
+    "name": "Kathan Modh",
+    "url": "https://github.com/KathanModh259"
+  },
+  "plugins": [
+    {
+      "name": "latent-gate",
+      "source": "./plugins/latent-gate",
+      "description": "Read large logs, JSON dumps and docs through a deterministic, fact-preserving token optimizer so they cost Claude a fraction of the context. Works offline — no Ollama or API key needed."
+    }
+  ]
+}

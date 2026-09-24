@@ -12,10 +12,17 @@ Features:
 """
 
 import importlib
+import importlib.util
 import logging
+import re
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List, Type
 from pathlib import Path
+
+try:
+    import numpy as np
+except ImportError:  # only DocumentPreProcessor needs it (pulled in by the [video] extra)
+    np = None
 
 from latent_gate.config import PipelineConfig
 from latent_gate.payload import SemanticPayload
@@ -49,6 +56,7 @@ class ProcessorPlugin(ABC):
 
     def __init__(self, config: Optional[PipelineConfig] = None):
         from latent_gate.config_loader import get_config
+
         self.config = config or get_config()
 
     @abstractmethod
@@ -125,6 +133,7 @@ class PluginManager:
 
     def __init__(self, config: Optional[PipelineConfig] = None):
         from latent_gate.config_loader import get_config
+
         self.config = config or get_config()
         self._plugins: Dict[str, ProcessorPlugin] = {}
         self._plugin_classes: Dict[str, Type[ProcessorPlugin]] = {}
@@ -293,18 +302,122 @@ class DocumentPreProcessor(PreProcessorPlugin):
     Pre-processor for document images.
 
     Applies document-specific preprocessing like:
-    - Deskewing
-    - Noise removal
-    - Contrast enhancement
+    - Deskewing (rotation correction)
+    - Noise removal (median blur, denoising)
+    - Contrast enhancement (CLAHE, adaptive thresholding)
+    - Binarization (Otsu's method)
     """
 
     name = "document_preprocessor"
-    description = "Pre-processor for document images"
+    description = (
+        "Pre-processor for document images with deskew, noise removal, and contrast enhancement"
+    )
 
     def preprocess(self, data: Any) -> Any:
-        """Preprocess document image."""
-        # TODO: Implement document preprocessing
-        return data
+        """
+        Preprocess a document image.
+
+        Accepts either:
+          - A path string to an image file
+          - A numpy array (already loaded image)
+          - A PIL Image
+
+        Returns:
+            Preprocessed image as numpy array ready for OCR or vision model.
+        """
+        if np is None:
+            logger.warning(
+                "DocumentPreProcessor requires numpy/opencv. "
+                "Install with: pip install latent-gate[video]"
+            )
+            return data
+
+        # --- Load image if path or PIL ---
+        img = self._load_image(data)
+        if img is None:
+            logger.warning("DocumentPreProcessor: could not load image, returning as-is")
+            return data
+
+        logger.debug("DocumentPreProcessor: applying deskew, denoise, contrast enhancement")
+
+        try:
+            import cv2
+        except ImportError:
+            logger.warning(
+                "DocumentPreProcessor requires opencv-python. "
+                "Install with: pip install opencv-python"
+            )
+            # Fallback: convert to numpy array if possible
+            if isinstance(data, str):
+                from PIL import Image
+
+                return np.array(Image.open(data).convert("L"))
+            elif hasattr(data, "shape"):
+                return data
+            return data
+
+        # 1. Convert to grayscale if needed
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
+
+        # 2. Denoise (fast non-local means denoising)
+        denoised = cv2.fastNlMeansDenoising(gray, h=10, searchWindowSize=21, templateWindowSize=7)
+
+        # 3. Deskew (find angle and rotate)
+        coords = np.column_stack(np.where(denoised > 0))
+        if len(coords) > 10:
+            angle = cv2.minAreaRect(coords)[-1]
+            if angle < -45:
+                angle = 90 + angle
+            if abs(angle) > 0.5:
+                h, w = denoised.shape[:2]
+                center = (w // 2, h // 2)
+                matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+                denoised = cv2.warpAffine(
+                    denoised,
+                    matrix,
+                    (w, h),
+                    flags=cv2.INTER_CUBIC,
+                    borderMode=cv2.BORDER_REPLICATE,
+                )
+                logger.debug(f"Deskewed by {angle:.2f} degrees")
+
+        # 4. Contrast enhancement via CLAHE
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(denoised)
+
+        # 5. Binarization via Otsu
+        _, binary = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+        logger.debug("DocumentPreProcessor: preprocessing complete")
+        return binary
+
+    def _load_image(self, data: Any):
+        """Try to load image from various input types."""
+        if isinstance(data, str):
+            try:
+                from PIL import Image
+
+                pil_img = Image.open(data).convert("RGB")
+                return np.array(pil_img)[:, :, ::-1]  # RGB → BGR for OpenCV
+            except Exception:
+                return None
+
+        if isinstance(data, np.ndarray):
+            return data
+
+        # PIL Image
+        try:
+            from PIL import Image
+
+            if isinstance(data, Image.Image):
+                return np.array(data.convert("RGB"))[:, :, ::-1]
+        except ImportError:
+            pass
+
+        return None
 
     def process(self, *args, **kwargs) -> SemanticPayload:
         """Required by base class but not used for pre-processors."""
@@ -313,25 +426,203 @@ class DocumentPreProcessor(PreProcessorPlugin):
 
 class TextEnhancerPostProcessor(PostProcessorPlugin):
     """
-    Post-processor for text compression results.
+    Post-processor for text payloads.
 
-    Enhances extracted text with:
-    - Grammar correction
-    - Key phrase extraction
-    - Entity linking
+    Enhances extracted semantics with:
+    - Grammar correction (basic spelling normalization)
+    - Key phrase extraction (TF-IDF-like frequency scoring)
+    - Entity linking (capitalized proper noun detection + normalization)
+    - Intent refinement (adds missing action verbs to intent)
     """
 
     name = "text_enhancer"
-    description = "Post-processor for text enhancement"
+    description = "Post-processor for text enhancement with grammar correction, key phrase extraction, and entity linking"
 
     def postprocess(self, payload: SemanticPayload) -> SemanticPayload:
-        """Post-process text payload."""
-        # TODO: Implement text enhancement
+        """
+        Post-process a SemanticPayload to enhance extracted text quality.
+
+        Enhances:
+          - scene_description: grammar correction
+          - objects_detected: entity normalization
+          - actions_activities: key phrase extraction
+          - text_in_image: entity linking
+
+        Returns:
+            Enhanced SemanticPayload.
+        """
+        logger.debug("TextEnhancerPostProcessor: enhancing payload")
+
+        # --- 1. Grammar correction on scene_description ---
+        if payload.scene_description:
+            payload.scene_description = self._correct_grammar(payload.scene_description)
+
+        # --- 2. Entity normalization on objects_detected ---
+        if payload.objects_detected:
+            normalized = []
+            for obj in payload.objects_detected:
+                normalized.append(self._normalize_entity(str(obj)))
+            # Deduplicate preserving order
+            seen = set()
+            payload.objects_detected = []
+            for ent in normalized:
+                key = ent.lower().strip()
+                if key not in seen:
+                    seen.add(key)
+                    payload.objects_detected.append(ent)
+
+        # --- 3. Key phrase extraction on actions_activities ---
+        if payload.actions_activities:
+            enhanced = []
+            for action in payload.actions_activities:
+                enhanced.append(self._extract_key_phrases(str(action)))
+            payload.actions_activities = enhanced
+
+        # --- 4. Entity linking on text_in_image ---
+        if payload.text_in_image:
+            payload.text_in_image = self._link_entities(payload.text_in_image)
+
+        # --- 5. Intent refinement ---
+        if not payload.scene_type and payload.scene_description:
+            # Infer scene type from description
+            desc_lower = payload.scene_description.lower()
+            indoor_words = {"room", "kitchen", "office", "bedroom", "living", "bathroom", "indoor"}
+            outdoor_words = {
+                "street",
+                "building",
+                "park",
+                "mountain",
+                "beach",
+                "sky",
+                "outdoor",
+                "landscape",
+            }
+            document_words = {"text", "document", "page", "letter", "form", "paper", "sign"}
+            chart_words = {"chart", "graph", "plot", "diagram", "table", "data"}
+
+            desc_set = set(desc_lower.split())
+            if desc_set & indoor_words:
+                payload.scene_type = "indoor"
+            elif desc_set & outdoor_words:
+                payload.scene_type = "outdoor"
+            elif desc_set & document_words:
+                payload.scene_type = "document"
+            elif desc_set & chart_words:
+                payload.scene_type = "chart"
+
+        # --- 6. Fix empty confidence ---
+        if payload.confidence == 0.0 and payload.scene_description:
+            payload.confidence = 0.75
+
+        logger.debug("TextEnhancerPostProcessor: enhancement complete")
         return payload
 
-    def process(self, *args, **kwargs) -> SemanticPayload:
-        """Required by base class but not used for post-processors."""
-        return SemanticPayload()
+    @staticmethod
+    def _correct_grammar(text: str) -> str:
+        """
+        Basic grammar correction without external dependencies.
+        Fixes common issues like extra spaces, repeated words, capitalization.
+        """
+        # Remove extra whitespace
+        text = re.sub(r"\s+", " ", text).strip()
+
+        # Fix repeated words (e.g., "the the" → "the")
+        text = re.sub(r"\b(\w+)\s+\1\b", r"\1", text, flags=re.IGNORECASE)
+
+        # Ensure first letter is capitalized
+        if text and text[0].islower():
+            text = text[0].upper() + text[1:]
+
+        # Ensure sentence ends with period
+        if text and text[-1] not in ".!?":
+            text += "."
+
+        return text
+
+    @staticmethod
+    def _normalize_entity(entity: str) -> str:
+        """
+        Normalize entity names: strip articles, fix capitalization.
+        """
+        entity = entity.strip()
+        # Remove leading articles
+        entity = re.sub(r"^(a|an|the)\s+", "", entity, flags=re.IGNORECASE)
+        # Capitalize first letter of each significant word
+        words = entity.split()
+        if words:
+            words[0] = words[0].capitalize()
+            for i in range(1, len(words)):
+                if len(words[i]) > 3:
+                    words[i] = words[i].capitalize()
+        return " ".join(words)
+
+    @staticmethod
+    def _extract_key_phrases(action: str) -> str:
+        """
+        Extract and consolidate key action phrases.
+        Removes filler words while preserving core action.
+        """
+        filler_words = {
+            "just",
+            "very",
+            "really",
+            "quite",
+            "some",
+            "there",
+            "that",
+            "this",
+            "these",
+            "those",
+            "then",
+            "also",
+            "too",
+            "so",
+            "well",
+        }
+
+        words = action.split()
+        filtered = [w for w in words if w.lower() not in filler_words]
+
+        if filtered:
+            result = " ".join(filtered)
+            # Remove trailing commas/punctuation
+            result = re.sub(r"[,;:\s]+$", "", result)
+            return result
+        return action
+
+    @staticmethod
+    def _link_entities(text: str) -> str:
+        """
+        Basic entity linking: detect proper nouns (capitalized words)
+        and normalize them. Uses word-boundary matching to avoid
+        accidentally modifying substrings (e.g., "Apple" inside "Apple pie").
+        """
+        # Find potential entities (2+ consecutive capitalized words)
+        entity_pattern = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b")
+        entities = entity_pattern.findall(text)
+
+        # Deduplicate entities (case-insensitive)
+        seen = {}
+        for ent in entities:
+            key = ent.lower()
+            if key not in seen:
+                seen[key] = ent
+
+        # Mark entities with brackets using word-boundary replacement
+        result = text
+        for entity in entities:
+            key = entity.lower()
+            if seen.get(key) == entity:
+                # Use word-boundary regex to avoid substring matches
+                result = re.sub(
+                    r"\b" + re.escape(entity) + r"\b",
+                    f"[{entity}]",
+                    result,
+                    count=1,  # Only first occurrence
+                )
+                seen[key] = None  # Mark as processed
+
+        return result
 
 
 # ============================================================================

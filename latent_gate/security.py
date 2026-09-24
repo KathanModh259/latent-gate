@@ -56,7 +56,7 @@ def validate_image_path_access(image_path: str, config: PipelineConfig) -> None:
     image_path_str = str(image_path)
     if "\x00" in image_path_str or ".." in image_path_str:
         raise PathAccessError("Path traversal or invalid characters detected in image path.")
-        
+
     expanded = __import__("os").path.expanduser(image_path_str)
     absolute = __import__("os").path.abspath(expanded)
     candidate = Path(absolute).resolve()

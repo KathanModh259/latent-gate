@@ -18,10 +18,18 @@ space locally, lightweight decoding remotely.
 import json
 import re
 import time
+from typing import Optional
 import logging
 from dataclasses import dataclass, field, asdict
 
 from latent_gate.config import PipelineConfig
+from latent_gate.fast_client import OllamaUnavailableError
+from latent_gate.optimizer import (
+    OptimizationResult,
+    TokenOptimizer,
+    count_tokens,
+    missing_facts,
+)
 
 logger = logging.getLogger("latent_gate.text")
 
@@ -50,6 +58,9 @@ class TextPayload:
     tone: str = ""  # formal/casual/technical/etc.
     code_snippets: list = field(default_factory=list)  # Any code blocks (preserved as-is)
     data_points: list = field(default_factory=list)  # Numbers, dates, values mentioned
+    # When set, this verbatim-derived text is sent instead of the structured fields
+    # (produced by the deterministic TokenOptimizer, so nothing is paraphrased)
+    optimized_text: str = ""
 
     # ---- Metadata ----
     original_token_count: int = 0
@@ -63,30 +74,34 @@ class TextPayload:
         Convert to minimal text for the cloud LLM.
         This is what gets sent instead of the full original prompt.
         """
-        parts = []
+        if self.optimized_text:
+            compact = self.optimized_text
+        else:
+            parts = []
+            if self.question_type:
+                parts.append(f"[Type: {self.question_type}]")
+            if self.intent:
+                parts.append(f"Intent: {self.intent}")
+            # No caps on list lengths or code size: silently truncating constraints
+            # or code changes what the user asked for.
+            if self.key_entities:
+                parts.append(f"Entities: {', '.join(str(e) for e in self.key_entities)}")
+            if self.constraints:
+                parts.append(f"Constraints: {'; '.join(str(c) for c in self.constraints)}")
+            if self.context_summary:
+                parts.append(f"Context: {self.context_summary}")
+            if self.output_format:
+                parts.append(f"Output format: {self.output_format}")
+            if self.tone:
+                parts.append(f"Tone: {self.tone}")
+            if self.data_points:
+                parts.append(f"Data: {', '.join(str(d) for d in self.data_points)}")
+            for i, snippet in enumerate(self.code_snippets):
+                parts.append(f"Code[{i}]: {snippet}")
+            compact = " | ".join(parts)
 
-        if self.question_type:
-            parts.append(f"[Type: {self.question_type}]")
-        if self.intent:
-            parts.append(f"Intent: {self.intent}")
-        if self.key_entities:
-            parts.append(f"Entities: {', '.join(str(e) for e in self.key_entities[:10])}")
-        if self.constraints:
-            parts.append(f"Constraints: {'; '.join(str(c) for c in self.constraints[:5])}")
-        if self.context_summary:
-            parts.append(f"Context: {self.context_summary}")
-        if self.output_format:
-            parts.append(f"Output format: {self.output_format}")
-        if self.tone:
-            parts.append(f"Tone: {self.tone}")
-        if self.data_points:
-            parts.append(f"Data: {', '.join(str(d) for d in self.data_points[:10])}")
-        if self.code_snippets:
-            for i, snippet in enumerate(self.code_snippets[:3]):
-                parts.append(f"Code[{i}]: {str(snippet)[:300]}")
-
-        compact = " | ".join(parts)
-        self.compressed_token_count = len(compact.split()) + 10
+        # Same tokenizer as original_token_count, so the ratio is a real measurement
+        self.compressed_token_count = count_tokens(compact)
         if self.original_token_count > 0:
             self.compression_ratio = self.original_token_count / max(self.compressed_token_count, 1)
         return compact
@@ -227,6 +242,7 @@ Now shorten this prompt (output ONLY the shorter version, no explanation):
             )
         # Fallback: direct requests if no client shared
         import requests as _requests
+
         url = f"{self.config.ollama_base_url}/api/generate"
         payload = {
             "model": model,
@@ -244,7 +260,9 @@ Now shorten this prompt (output ONLY the shorter version, no explanation):
             resp.raise_for_status()
             return resp.json().get("response", "")
         except _requests.exceptions.ConnectionError:
-            raise ConnectionError("Cannot connect to Ollama. Make sure it's running: ollama serve")
+            raise OllamaUnavailableError(
+                "Cannot connect to Ollama. Make sure it's running: ollama serve"
+            )
         except _requests.exceptions.Timeout:
             raise TimeoutError(
                 f"Ollama request timed out after {self.config.request_timeout}s. "
@@ -256,8 +274,8 @@ Now shorten this prompt (output ONLY the shorter version, no explanation):
             )
 
     def _estimate_tokens(self, text: str) -> int:
-        """Rough token count estimate (~1.33 tokens per word for English)."""
-        return int(len(text.split()) * 1.33)
+        """Token count (tiktoken o200k_base when installed, else a calibrated estimate)."""
+        return count_tokens(text)
 
     def _detect_mode(self, text: str, mode: str = "auto") -> str:
         """Auto-detect the best compression mode based on content."""
@@ -268,7 +286,9 @@ Now shorten this prompt (output ONLY the shorter version, no explanation):
         code_indicators = ["```", "def ", "function ", "class ", "import ", "const ", "var "]
         if any(indicator in text for indicator in code_indicators):
             return "code"
-        if re.search(r'\b(from\s+\w+\s+)?import\b|\bexport\b|```|interface\s+\w+|type\s+\w+\s*=', text):
+        if re.search(
+            r"\b(from\s+\w+\s+)?import\b|\bexport\b|```|interface\s+\w+|type\s+\w+\s*=", text
+        ):
             return "code"
 
         # Multi-turn conversation pattern
@@ -312,6 +332,7 @@ Now shorten this prompt (output ONLY the shorter version, no explanation):
 
         if data is not None:
             try:
+
                 def _ensure_list(val):
                     return val if isinstance(val, list) else [val] if val else []
 
@@ -348,12 +369,16 @@ Now shorten this prompt (output ONLY the shorter version, no explanation):
                     max_tokens = self.config.max_local_summary_tokens * 2
                 if self.client:
                     resp = self.client.ollama_generate(
-                        model=model, prompt=prompt, max_tokens=max_tokens,
+                        model=model,
+                        prompt=prompt,
+                        max_tokens=max_tokens,
                     )
                 else:
                     resp = self._ollama_generate(prompt, max_tokens, model)
                 logger.info(f"Compression succeeded with {model}")
                 return resp, model
+            except OllamaUnavailableError:
+                raise  # server is down: other models on it can't succeed either
             except (ConnectionError, TimeoutError) as e:
                 logger.warning(f"Model {model} failed ({e}), trying next in chain...")
                 last_error = e
@@ -364,200 +389,111 @@ Now shorten this prompt (output ONLY the shorter version, no explanation):
     # Public Methods
     # ----------------------------------------------------------------
 
-    def _fallback_compress(self, text: str, mode: str = "compress") -> TextPayload:
-        """Fallback compression when Ollama is not available.
-        Uses algorithmic extraction instead of LLM-based compression."""
-        import re
-        
-        estimated_tokens = self._estimate_tokens(text)
-        
-        payload = TextPayload(
-            original_token_count=estimated_tokens,
-            processor_model="fallback",
+    def _optimizer(self) -> TokenOptimizer:
+        level = self.config.compression_level
+        return TokenOptimizer(
+            level=level if level in ("lossless", "balanced", "aggressive") else "balanced"
         )
-        
-        lines = text.strip().split('\n')
-        non_empty = [line for line in lines if line.strip()]
-        
-        # Extract first line as intent
-        if non_empty:
-            payload.intent = non_empty[0][:200]
-        
-        # Find quoted terms as entities
-        entities = re.findall(r'"([^"]+)"', text)
-        payload.key_entities = entities[:10]
-        
-        # Find numbered lists / bullet points as constraints
-        constraints = re.findall(r'^[-*\d]+\.?\s+(.+)$', text, re.MULTILINE)
-        payload.constraints = constraints[:5]
-        
-        # Detect question type
-        if '?' in text or re.search(r'\b(explain|how|why|what)\b', text.lower()):
-            payload.question_type = "analytical"
-        elif re.search(r'\b(code|function|class)\b', text.lower()):
-            payload.question_type = "code"
-        else:
-            payload.question_type = "factual"
-        
-        # Summarize - take first 20% and last 20%
-        if len(non_empty) > 5:
-            split = max(1, len(non_empty) // 5)
-            top = non_empty[:split]
-            bottom = non_empty[-split:]
-            payload.context_summary = ' '.join(top + ['...'] + bottom)[:500]
-        else:
-            payload.context_summary = text[:300]
-        
-        # Estimate compressed size (roughly 25% of original)
-        payload.compressed_token_count = max(50, estimated_tokens // 4)
-        payload.compression_ratio = estimated_tokens / max(payload.compressed_token_count, 1)
-        
-        logger.info(
-            f"Fallback compression: {payload.original_token_count} → {payload.compressed_token_count} tokens "
-            f"({payload.compression_ratio:.1f}x reduction)"
+
+    @staticmethod
+    def _payload_from_optimization(result: OptimizationResult) -> TextPayload:
+        return TextPayload(
+            optimized_text=result.text,
+            original_token_count=result.original_tokens,
+            compressed_token_count=result.optimized_tokens,
+            compression_ratio=result.compression_ratio,
+            processor_model=f"optimizer/{result.level}",
         )
-        
-        return payload
+
+    def _fallback_compress(
+        self, text: str, mode: str = "compress", question: str = ""
+    ) -> TextPayload:
+        """
+        Deterministic compression (used when Ollama is unavailable, or with
+        compression_strategy="deterministic"). Sends the user's own wording,
+        optimized — never an invented summary.
+        """
+        result = self._optimizer().optimize(
+            text, question=question, max_tokens=self.config.target_token_budget
+        )
+        return self._payload_from_optimization(result)
 
     def _fallback_rewrite_prompt(self, text: str) -> str:
-        """Algorithmic prompt rewriting — extracts core requirements into a shorter prompt."""
-        import re
-        lines = text.strip().split('\n')
-        
-        # Filter lines
-        skip_words = {'hi', 'hello', 'hey', 'thanks', 'thank you', 'ok', 'okay', 'sure', 'please', 'so', 'well'}
-        kept = []
-        for line in lines:
-            s = line.strip()
-            if not s:
-                continue
-            if s.lower().rstrip('!.?,') in skip_words:
-                continue
-            kept.append(s)
-        
-        # Deduplicate
-        deduped = []
-        for k in kept:
-            if deduped and k == deduped[-1]:
-                continue
-            deduped.append(k)
-        
-        # Combine adjacent bullet points into comma lists
-        # Also remove "The application must include" / "The features are" / etc (boilerplate)
-        boilerplate = re.compile(
-            r'^(the\s+)?(application|project|system|tool|feature|solution|script|code|page|website)\s+'
-            r'(must|should|will|needs\s+to|has\s+to|shall|would|can|could)\s+'
-            r'(include|have|support|provide|contain|be|do|implement|use|work|handle|ensure|deliver)',
-            re.IGNORECASE
-        )
-        
-        condensed = []
-        bullets = []
-        for line in deduped:
-            stripped = line.strip()
-            is_bullet = bool(re.match(r'^(?:[\s]*[-*•]|\d+[.)])\s', stripped))
-            # Skip boilerplate
-            if boilerplate.match(stripped):
-                # Keep the content after boilerplate
-                remainder = boilerplate.sub('', stripped).strip().lstrip(':').strip()
-                if remainder:
-                    condensed.append(remainder)
-                continue
-            if is_bullet:
-                clean = re.sub(r'^(?:[\s]*[-*•]|\d+[.)])\s*', '', stripped).strip()
-                bullets.append(clean)
-            else:
-                if bullets:
-                    condensed.append('; '.join(bullets))
-                    bullets = []
-                condensed.append(stripped)
-        if bullets:
-            condensed.append('; '.join(bullets))
-        
-        result = '\n'.join(condensed)
-        
-        # For long results: take first 35% + last 20%
-        words = result.split()
-        if len(words) > 60:
-            split_a = max(25, len(words) * 35 // 100)
-            split_b = max(split_a + 5, len(words) * 80 // 100)
-            result = ' '.join(words[:split_a]) + '\n...\n' + ' '.join(words[split_b:])
-        
-        return result
+        """Deterministic prompt shortening (see latent_gate.optimizer)."""
+        return self._optimizer().optimize(text, max_tokens=self.config.target_token_budget).text
 
     def compress(
         self,
         text: str,
         mode: str = "auto",
         question: str = "",
+        _optimized: Optional[OptimizationResult] = None,
     ) -> TextPayload:
         """
         Compress a text prompt locally.
 
+        Stage 1 always runs the deterministic TokenOptimizer. With
+        compression_strategy="auto", the local LLM then extracts a structured
+        payload from the optimized text; that payload is used only if it is
+        smaller AND keeps every critical fact (numbers, identifiers, code, URLs).
+
         Args:
             text:     The full user prompt / text to compress.
             mode:     "auto" | "compress" | "summarize" | "condense" | "code"
-            question: For 'condense' mode — the question being answered.
+            question: The question being answered (focuses selection/condensing).
 
         Returns:
             TextPayload with compressed representation.
         """
         start = time.time()
-
-        # Detect mode
         mode = self._detect_mode(text, mode)
         logger.info(f"Text compression mode: {mode}")
 
-        # Short-circuit: if text is already short, don't compress
-        estimated_tokens = self._estimate_tokens(text)
-        if estimated_tokens < 100:
-            logger.info(f"Text is short ({estimated_tokens} tokens), skipping compression")
-            payload = TextPayload(
-                intent=text,
-                original_token_count=estimated_tokens,
-                compressed_token_count=estimated_tokens,
-                compression_ratio=1.0,
-                processing_time_ms=(time.time() - start) * 1000,
-            )
-            return payload
-
-        # Select prompt template
-        prompt_map = {
-            "compress": self.COMPRESS_PROMPT.replace('{user_text}', text),
-            "summarize": self.SUMMARIZE_PROMPT.replace('{user_text}', text),
-            "condense": self.CONDENSE_PROMPT.replace('{user_text}', text).replace('{question}', question or "Answer the query"),
-            "code": self.CODE_PROMPT.replace('{user_text}', text),
-        }
-        prompt = prompt_map.get(mode, prompt_map["compress"])
-
-        # Determine best model for this task via routing
-        task = "text_smart" if self.config._is_complex(text) else "text_fast"
-        model = self.config.get_model_for_task(task, text)
-        logger.info(
-            f"Compressing {estimated_tokens} tokens with {model} (task={task})"
+        det = _optimized or self._optimizer().optimize(
+            text, question=question, max_tokens=self.config.target_token_budget
         )
+        det_payload = self._payload_from_optimization(det)
 
-        # Try Ollama with fallback chain; if all fail, use algorithmic fallback
+        # Short or deterministic-only: an LLM call (seconds + JSON framing) can't beat this
+        if self.config.compression_strategy == "deterministic" or det.optimized_tokens < 100:
+            det_payload.processing_time_ms = (time.time() - start) * 1000
+            return det_payload
+
+        prompt_map = {
+            "compress": self.COMPRESS_PROMPT,
+            "summarize": self.SUMMARIZE_PROMPT,
+            "condense": self.CONDENSE_PROMPT.replace("{question}", question or "Answer the query"),
+            "code": self.CODE_PROMPT,
+        }
+        prompt = prompt_map.get(mode, self.COMPRESS_PROMPT).replace("{user_text}", det.text)
+
+        task = "text_smart" if self.config._is_complex(det.text) else "text_fast"
+        logger.info(f"LLM extraction on {det.optimized_tokens} tokens (task={task})")
         try:
             raw, model_used = self._ollama_generate_with_fallback(
                 prompt, max_tokens=self.config.max_local_summary_tokens * 2, task=task
             )
-            payload = self._parse_response(raw, text, model_used)
         except (ConnectionError, TimeoutError) as e:
-            logger.warning(f"All Ollama models unavailable ({e}), using algorithmic fallback")
-            payload = self._fallback_compress(text, mode)
-            payload.processing_time_ms = (time.time() - start) * 1000
-            return payload
+            logger.warning(f"Ollama unavailable ({e}); using deterministic optimizer result")
+            det_payload.processing_time_ms = (time.time() - start) * 1000
+            return det_payload
+
+        payload = self._parse_response(raw, text, model_used)
+        payload.original_token_count = det.original_tokens
+        compact = payload.to_compact_prompt()
+        lost = missing_facts(text, compact)
+        if lost or payload.compressed_token_count >= det.optimized_tokens:
+            logger.info(
+                f"LLM extraction rejected ({payload.compressed_token_count} tokens, "
+                f"{len(lost)} facts lost e.g. {lost[:3]}); keeping deterministic result"
+            )
+            payload = det_payload
 
         payload.processing_time_ms = (time.time() - start) * 1000
-
-        # Calculate compression stats
-        payload.to_compact_prompt()
         logger.info(
-            f"Compressed: {payload.original_token_count} → {payload.compressed_token_count} tokens "
-            f"({payload.compression_ratio:.1f}x reduction, model={model_used})"
+            f"Compressed: {payload.original_token_count} -> {payload.compressed_token_count} "
+            f"tokens ({payload.compression_ratio:.1f}x, {payload.processor_model})"
         )
-
         return payload
 
     def compress_conversation(self, messages: list) -> TextPayload:
@@ -592,8 +528,17 @@ Now shorten this prompt (output ONLY the shorter version, no explanation):
         Returns:
             TextPayload with condensed document facts.
         """
-        full_text = "\n\n---\n\n".join(f"[Doc {i+1}]: {doc}" for i, doc in enumerate(documents))
-        return self.compress(full_text, mode="condense", question=question)
+        full_text = "\n\n".join(f"[Doc {i + 1}]: {doc}" for i, doc in enumerate(documents))
+        # Question-aware selection is where extractive compression shines: spend the
+        # budget on the most relevant sentences across all documents.
+        opt = self._optimizer()
+        det = opt.optimize_documents(
+            documents,
+            question=question,
+            max_tokens=self.config.target_token_budget,
+            target_ratio=0.0 if opt.level == "lossless" else 0.5,
+        )
+        return self.compress(full_text, mode="condense", question=question, _optimized=det)
 
     def compress_prompt(self, text: str) -> dict:
         """
@@ -610,25 +555,34 @@ Now shorten this prompt (output ONLY the shorter version, no explanation):
             Dictionary with compressed prompt and stats.
         """
         start = time.time()
-        original_tokens = self._estimate_tokens(text)
+        det = self._optimizer().optimize(text, max_tokens=self.config.target_token_budget)
+        original_tokens = det.original_tokens
+        compressed, method = det.text, f"optimizer/{det.level}"
 
-        prompt = self.COMPRESS_ONLY_PROMPT.replace('{user_text}', text)
+        if self.config.compression_strategy != "deterministic" and det.optimized_tokens >= 60:
+            prompt = self.COMPRESS_ONLY_PROMPT.replace("{user_text}", det.text)
+            try:
+                resp, model_used = self._ollama_generate_with_fallback(
+                    prompt, max_tokens=500, task="text_fast"
+                )
+                candidate = resp.strip()
+                lost = missing_facts(text, candidate)
+                if candidate and not lost and count_tokens(candidate) < det.optimized_tokens:
+                    compressed, method = candidate, f"llm/{model_used}"
+                else:
+                    logger.info(
+                        f"LLM rewrite rejected ({len(lost)} facts lost e.g. {lost[:3]}); "
+                        "keeping deterministic result"
+                    )
+            except (ConnectionError, TimeoutError):
+                logger.info("Ollama unavailable for prompt compression; using optimizer result")
 
-        try:
-            resp, model_used = self._ollama_generate_with_fallback(
-                prompt, max_tokens=500, task="text_fast"
-            )
-            compressed = resp.strip()
-        except (ConnectionError, TimeoutError):
-            logger.warning("Ollama unavailable for prompt compression, using algorithmic fallback")
-            compressed = self._fallback_rewrite_prompt(text)
-
-        compressed_tokens = self._estimate_tokens(compressed)
+        compressed_tokens = count_tokens(compressed)
         elapsed_ms = (time.time() - start) * 1000
 
         logger.info(
-            f"Prompt compressed: {original_tokens} → {compressed_tokens} tokens "
-            f"({original_tokens / max(compressed_tokens, 1):.1f}x reduction, {elapsed_ms:.0f}ms)"
+            f"Prompt compressed: {original_tokens} -> {compressed_tokens} tokens "
+            f"({original_tokens / max(compressed_tokens, 1):.1f}x, {method}, {elapsed_ms:.0f}ms)"
         )
 
         return {
@@ -640,4 +594,5 @@ Now shorten this prompt (output ONLY the shorter version, no explanation):
             "compression_ratio": f"{original_tokens / max(compressed_tokens, 1):.1f}x",
             "processing_time_ms": round(elapsed_ms, 1),
             "input_type": "compress_only",
+            "method": method,
         }

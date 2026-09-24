@@ -10,6 +10,7 @@ Key optimizations:
 """
 
 import logging
+from typing import List, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -18,6 +19,24 @@ from urllib3.util.retry import Retry
 from latent_gate.config import PipelineConfig
 
 logger = logging.getLogger("latent_gate.client")
+
+
+class OllamaUnavailableError(ConnectionError):
+    """The Ollama server itself is unreachable (as opposed to one model failing)."""
+
+
+def is_model_installed(model: str, installed: List[str]) -> bool:
+    """
+    Return True if `model` (as named in config) is among Ollama's installed models.
+
+    Ollama reports untagged pulls with an implicit tag (``nomic-embed-text`` is listed
+    as ``nomic-embed-text:latest``), so an untagged name matches its ``:latest`` form.
+    """
+
+    def normalize(name: str) -> str:
+        return name if ":" in name else f"{name}:latest"
+
+    return normalize(model) in {normalize(n) for n in installed}
 
 
 class FastClient:
@@ -74,33 +93,66 @@ class FastClient:
     # Model Preloading
     # ----------------------------------------------------------------
 
-    def preload_models(self):
-        """Warm up Ollama models so they're loaded in GPU memory."""
-        models_to_load = set()
-        models_to_load.add(self.config.vision_model)
-        models_to_load.add(self.config.text_fast_model)
-        models_to_load.add(self.config.text_smart_model)
-        models_to_load.add(self.config.embedding_model)
-        if self.config.offline_first and self.config.offline_model:
-            models_to_load.add(self.config.offline_model)
-        if self.config.remote_provider == "ollama":
-            models_to_load.add(self.config.remote_model)
+    def list_local_models(self, timeout: float = 2.0) -> Optional[List[str]]:
+        """
+        Return model names installed in Ollama, or None if Ollama is unreachable.
 
-        for model in models_to_load:
+        Uses a bare requests call (no retry adapter) so an offline Ollama is
+        detected in ~timeout seconds instead of retries x backoff.
+        """
+        try:
+            resp = requests.get(f"{self.config.ollama_base_url}/api/tags", timeout=timeout)
+            resp.raise_for_status()
+            return [m.get("name", "") for m in resp.json().get("models", [])]
+        except (requests.RequestException, ValueError):
+            return None
+
+    def preload_models(self) -> List[str]:
+        """
+        Warm up installed Ollama models so they're resident in GPU memory.
+
+        Returns the list of models that were successfully warmed.
+        """
+        wanted = {
+            self.config.vision_model,
+            self.config.text_fast_model,
+            self.config.text_smart_model,
+        }
+        if self.config.offline_first and self.config.offline_model:
+            wanted.add(self.config.offline_model)
+        if self.config.remote_provider == "ollama":
+            wanted.add(self.config.remote_model)
+        wanted.discard("")
+
+        installed = self.list_local_models()
+        if installed is None:
+            logger.warning(
+                f"Ollama not reachable at {self.config.ollama_base_url} - skipping model "
+                "preload. Start it with `ollama serve`."
+            )
+            return []
+
+        to_load = []
+        for model in sorted(wanted):
+            if is_model_installed(model, installed):
+                to_load.append(model)
+            else:
+                logger.warning(f"Model '{model}' is not pulled. Run: ollama pull {model}")
+
+        warmed = []
+        for model in to_load:
             try:
                 logger.info(f"Preloading model: {model}")
                 resp = self._ollama_session.post(
                     f"{self.config.ollama_base_url}/api/generate",
-                    json={
-                        "model": model,
-                        "prompt": "",
-                        "keep_alive": "10m",
-                    },
-                    timeout=30,
+                    json={"model": model, "prompt": "", "keep_alive": "10m"},
+                    timeout=60,
                 )
                 resp.raise_for_status()
+                warmed.append(model)
             except Exception as e:
                 logger.warning(f"Failed to preload {model}: {e}")
+        return warmed
 
     # ----------------------------------------------------------------
     # Ollama Calls (Local)
@@ -140,7 +192,7 @@ class FastClient:
             return resp.json().get("response", "")
 
         except requests.exceptions.ConnectionError:
-            raise ConnectionError(
+            raise OllamaUnavailableError(
                 "Cannot connect to Ollama. Make sure it's running:\n"
                 "  Start:  ollama serve\n"
                 "  Check:  curl http://localhost:11434/api/tags"
@@ -150,6 +202,13 @@ class FastClient:
                 f"Ollama request timed out after {self.config.request_timeout}s. "
                 "The model may be loading or the request is too large."
             )
+        except (requests.exceptions.HTTPError, requests.exceptions.RetryError) as e:
+            # Mapped to ConnectionError so callers' model fallback chains engage
+            # (e.g. 404 when the model hasn't been pulled).
+            raise ConnectionError(
+                f"Ollama HTTP error for model '{model}': {e}. "
+                f"If the model is missing, run: ollama pull {model}"
+            ) from e
 
     # ----------------------------------------------------------------
     # Remote API Calls (Cloud)
@@ -175,23 +234,15 @@ class FastClient:
                 "Check your network connection and API endpoint."
             )
         except requests.exceptions.Timeout:
-            raise TimeoutError(
-                f"Request to {url} timed out after {self.config.request_timeout}s."
-            )
+            raise TimeoutError(f"Request to {url} timed out after {self.config.request_timeout}s.")
 
         if resp.status_code == 429:
             retry_after = resp.headers.get("Retry-After", "unknown")
-            raise ConnectionError(
-                f"Rate limited by API (429). Retry after {retry_after}s."
-            )
+            raise ConnectionError(f"Rate limited by API (429). Retry after {retry_after}s.")
         if resp.status_code == 401:
-            raise PermissionError(
-                "API authentication failed (401). Check your API key."
-            )
+            raise PermissionError("API authentication failed (401). Check your API key.")
         if resp.status_code == 403:
-            raise PermissionError(
-                "API access denied (403). Check your API key permissions."
-            )
+            raise PermissionError("API access denied (403). Check your API key permissions.")
 
         resp.raise_for_status()
 
@@ -199,8 +250,7 @@ class FastClient:
             return resp.json()
         except ValueError:
             raise ValueError(
-                f"API returned non-JSON response (status {resp.status_code}): "
-                f"{resp.text[:200]}"
+                f"API returned non-JSON response (status {resp.status_code}): " f"{resp.text[:200]}"
             )
 
     def post_stream(

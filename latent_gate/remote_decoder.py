@@ -14,19 +14,26 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Iterator, Tuple
 
-from latent_gate.config import PipelineConfig
+from latent_gate.config import DEFAULT_REMOTE_MODELS, PipelineConfig
 from latent_gate.fast_client import FastClient
 
 logger = logging.getLogger("latent_gate.remote")
 
 
+# Sent on every call, so every token here is billed on every request: keep it tiny.
+# (It also used to call ALL inputs "visual scene data", which misled text queries.)
 SYSTEM_PROMPT = (
-    "You receive pre-analyzed visual scene data in a structured compact format. "
-    "This data was extracted by a local vision model from an image or video frame. "
-    "Use this structured data to answer the user's question accurately and helpfully. "
-    "Do not mention that you received pre-processed data — respond naturally as if "
-    "you analyzed the image yourself."
+    "The context was condensed from longer text or extracted from images by a local "
+    "model. Answer directly and don't mention the preprocessing."
 )
+
+
+def _user_content(compact_input: str, user_query: str) -> str:
+    """Frame the payload with the fewest tokens; no filler question when none was asked."""
+    query = (user_query or "").strip()
+    if not query or query == compact_input.strip():
+        return compact_input
+    return f"{compact_input}\n\nQuestion: {query}"
 
 
 class RemoteDecodeError(Exception):
@@ -52,6 +59,11 @@ def _extract_content_from_openai(data: dict, provider: str = "openai") -> Tuple[
         first = choices[0]
         message = first.get("message") or first.get("delta", {})
         content = message.get("content")
+        if content and first.get("finish_reason") == "length":
+            logger.warning(
+                f"{provider} answer was cut off at the output token limit; "
+                "raise max_output_tokens (LATENTGATE_MAX_OUTPUT_TOKENS) for longer answers"
+            )
         if not content:
             finish_reason = first.get("finish_reason", "unknown")
             if finish_reason == "length":
@@ -89,6 +101,16 @@ def _extract_content_from_openai(data: dict, provider: str = "openai") -> Tuple[
 def _extract_content_from_anthropic(data: dict) -> Tuple[str, dict]:
     """Safely extract content and usage from Anthropic API response."""
     try:
+        stop_reason = data.get("stop_reason")
+        if stop_reason == "refusal":
+            raise RemoteDecodeError(
+                "Anthropic declined the request (refusal)", provider="anthropic"
+            )
+        if stop_reason == "max_tokens":
+            logger.warning(
+                "anthropic answer was cut off at the output token limit; "
+                "raise max_output_tokens (LATENTGATE_MAX_OUTPUT_TOKENS) for longer answers"
+            )
         content_blocks = data.get("content")
         if not content_blocks:
             error_type = data.get("error", {}).get("type", "unknown")
@@ -160,7 +182,7 @@ def _extract_content_from_google(data: dict) -> Tuple[str, dict]:
 def _build_messages(compact_input: str, user_query: str) -> list:
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"[SCENE DATA]: {compact_input}\n\n[QUESTION]: {user_query}"},
+        {"role": "user", "content": _user_content(compact_input, user_query)},
     ]
 
 
@@ -178,11 +200,7 @@ def _stream_sse(response) -> Iterator[str]:
                         chunk = json.loads(data)
                         choices = chunk.get("choices", [])
                         if choices:
-                            content = (
-                                choices[0]
-                                .get("delta", {})
-                                .get("content")
-                            )
+                            content = choices[0].get("delta", {}).get("content")
                             if content:
                                 yield content
                     except (json.JSONDecodeError, IndexError, KeyError, TypeError):
@@ -238,7 +256,7 @@ class OpenAICompatibleDecoder(RemoteDecoder):
         p = {
             "model": self.model,
             "messages": _build_messages("", ""),
-            "max_tokens": 500,
+            "max_tokens": self.config.max_output_tokens,
             "temperature": 0.3,
         }
         if stream:
@@ -321,7 +339,7 @@ class AzureOpenAIDecoder(RemoteDecoder):
     def decode(self, compact_input: str, user_query: str) -> Tuple[str, dict]:
         payload = {
             "messages": _build_messages(compact_input, user_query),
-            "max_tokens": 500,
+            "max_tokens": self.config.max_output_tokens,
             "temperature": 0.3,
         }
         logger.info(f"Azure OpenAI request to {self.deployment}")
@@ -331,7 +349,7 @@ class AzureOpenAIDecoder(RemoteDecoder):
     def decode_stream(self, compact_input: str, user_query: str) -> Iterator[str]:
         payload = {
             "messages": _build_messages(compact_input, user_query),
-            "max_tokens": 500,
+            "max_tokens": self.config.max_output_tokens,
             "temperature": 0.3,
             "stream": True,
         }
@@ -359,7 +377,7 @@ class AnthropicDecoder(RemoteDecoder):
 
     @property
     def model(self) -> str:
-        return self.config.remote_model or "claude-sonnet-4-20250514"
+        return self.config.remote_model or DEFAULT_REMOTE_MODELS["anthropic"]
 
     def _headers(self) -> dict:
         return {
@@ -371,7 +389,7 @@ class AnthropicDecoder(RemoteDecoder):
     def _payload(self, stream: bool = False) -> dict:
         p = {
             "model": self.model,
-            "max_tokens": 500,
+            "max_tokens": self.config.max_output_tokens,
             "system": SYSTEM_PROMPT,
             "messages": [{"role": "user", "content": ""}],
         }
@@ -382,7 +400,12 @@ class AnthropicDecoder(RemoteDecoder):
     def decode(self, compact_input: str, user_query: str) -> Tuple[str, dict]:
         url = "https://api.anthropic.com/v1/messages"
         payload = self._payload()
-        payload["messages"] = [{"role": "user", "content": f"[SCENE DATA]: {compact_input}\n\n[QUESTION]: {user_query}"}]
+        payload["messages"] = [
+            {
+                "role": "user",
+                "content": _user_content(compact_input, user_query),
+            }
+        ]
         logger.info(f"Anthropic request to {self.model}")
         data = self.client.remote_post(url, self._headers(), payload)
         return _extract_content_from_anthropic(data)
@@ -390,7 +413,12 @@ class AnthropicDecoder(RemoteDecoder):
     def decode_stream(self, compact_input: str, user_query: str) -> Iterator[str]:
         url = "https://api.anthropic.com/v1/messages"
         payload = self._payload(stream=True)
-        payload["messages"] = [{"role": "user", "content": f"[SCENE DATA]: {compact_input}\n\n[QUESTION]: {user_query}"}]
+        payload["messages"] = [
+            {
+                "role": "user",
+                "content": _user_content(compact_input, user_query),
+            }
+        ]
         logger.info(f"Anthropic streaming request to {self.model}")
         try:
             response = self.client.post_stream(url, self._headers(), payload)
@@ -429,12 +457,23 @@ class GoogleDecoder(RemoteDecoder):
 
     def _content(self, compact_input: str, user_query: str) -> dict:
         return {
-            "contents": [{"parts": [{"text": f"{SYSTEM_PROMPT}\n\n[SCENE DATA]: {compact_input}\n\n[QUESTION]: {user_query}"}]}],
-            "generationConfig": {"temperature": 0.3, "maxOutputTokens": 500},
+            "contents": [
+                {
+                    "parts": [
+                        {"text": f"{SYSTEM_PROMPT}\n\n{_user_content(compact_input, user_query)}"}
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": self.config.max_output_tokens,
+            },
         }
 
     def decode(self, compact_input: str, user_query: str) -> Tuple[str, dict]:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+        )
         headers = {"x-goog-api-key": self.api_key}
         logger.info(f"Google request to {self.model}")
         data = self.client.remote_post(url, headers, self._content(compact_input, user_query))
@@ -479,11 +518,16 @@ class OllamaRemoteDecoder(RemoteDecoder):
         logger.info(f"Ollama remote request to {self.config.remote_model}")
         response = self.client.ollama_generate(
             model=self.config.remote_model,
-            prompt=f"{SYSTEM_PROMPT}\n\n[SCENE DATA]: {compact_input}\n\n[QUESTION]: {user_query}\n\nAnswer:",
-            max_tokens=500,
+            prompt=f"{SYSTEM_PROMPT}\n\n{_user_content(compact_input, user_query)}\n\nAnswer:",
+            max_tokens=self.config.max_output_tokens,
         )
         # Ollama returns a string from ollama_generate; usage unavailable via this path
-        usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "source": "unavailable"}
+        usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "source": "unavailable",
+        }
         return response, usage
 
     def decode_stream(self, compact_input: str, user_query: str) -> Iterator[str]:
@@ -494,9 +538,9 @@ class OllamaRemoteDecoder(RemoteDecoder):
                 {},
                 {
                     "model": self.config.remote_model,
-                    "prompt": f"{SYSTEM_PROMPT}\n\n[SCENE DATA]: {compact_input}\n\n[QUESTION]: {user_query}\n\nAnswer:",
+                    "prompt": f"{SYSTEM_PROMPT}\n\n{_user_content(compact_input, user_query)}\n\nAnswer:",
                     "stream": True,
-                    "options": {"temperature": 0.3, "num_predict": 500},
+                    "options": {"temperature": 0.3, "num_predict": self.config.max_output_tokens},
                 },
             )
             for line in response.iter_lines():
@@ -529,19 +573,27 @@ class BedrockDecoder(RemoteDecoder):
     def _body(self) -> dict:
         return {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 500,
+            "max_tokens": self.config.max_output_tokens,
             "messages": [{"role": "user", "content": ""}],
         }
 
     def decode(self, compact_input: str, user_query: str) -> Tuple[str, dict]:
         try:
             import boto3
+
             bedrock = boto3.client("bedrock-runtime", region_name=self.region)
             body = self._body()
-            body["messages"] = [{"role": "user", "content": f"{SYSTEM_PROMPT}\n\n[SCENE DATA]: {compact_input}\n\n[QUESTION]: {user_query}"}]
+            body["messages"] = [
+                {
+                    "role": "user",
+                    "content": f"{SYSTEM_PROMPT}\n\n{_user_content(compact_input, user_query)}",
+                }
+            ]
             response = bedrock.invoke_model(
-                body=json.dumps(body), modelId=self.model_id,
-                contentType="application/json", accept="application/json",
+                body=json.dumps(body),
+                modelId=self.model_id,
+                contentType="application/json",
+                accept="application/json",
             )
             result = json.loads(response["body"].read())
             content_blocks = result.get("content", [])
@@ -562,7 +614,8 @@ class BedrockDecoder(RemoteDecoder):
             usage = {
                 "prompt_tokens": raw_usage.get("input_tokens", 0),
                 "completion_tokens": raw_usage.get("output_tokens", 0),
-                "total_tokens": raw_usage.get("input_tokens", 0) + raw_usage.get("output_tokens", 0),
+                "total_tokens": raw_usage.get("input_tokens", 0)
+                + raw_usage.get("output_tokens", 0),
                 "source": "provider" if raw_usage else "unavailable",
             }
             return text, usage
@@ -581,12 +634,20 @@ class BedrockDecoder(RemoteDecoder):
     def decode_stream(self, compact_input: str, user_query: str) -> Iterator[str]:
         try:
             import boto3
+
             bedrock = boto3.client("bedrock-runtime", region_name=self.region)
             body = self._body()
-            body["messages"] = [{"role": "user", "content": f"{SYSTEM_PROMPT}\n\n[SCENE DATA]: {compact_input}\n\n[QUESTION]: {user_query}"}]
+            body["messages"] = [
+                {
+                    "role": "user",
+                    "content": f"{SYSTEM_PROMPT}\n\n{_user_content(compact_input, user_query)}",
+                }
+            ]
             response = bedrock.invoke_model_with_response_stream(
-                body=json.dumps(body), modelId=self.model_id,
-                contentType="application/json", accept="application/json",
+                body=json.dumps(body),
+                modelId=self.model_id,
+                contentType="application/json",
+                accept="application/json",
             )
             for event in response["body"]:
                 chunk = json.loads(event["bytes"])
@@ -621,3 +682,23 @@ def create_decoder(config: PipelineConfig, client: FastClient = None) -> RemoteD
     decoder_class = decoder_map.get(provider, OpenAIDecoder)
     logger.info(f"Created {decoder_class.__name__} for '{provider}'")
     return decoder_class(config, client)
+
+
+def get_fallback_decoder(config: PipelineConfig, client: FastClient = None) -> RemoteDecoder:
+    """
+    Create a fallback decoder when the primary decoder fails.
+
+    Falls back through: primary_provider -> ollama (local, always available)
+    """
+    primary = config.remote_provider.lower()
+    if primary != "ollama":
+        logger.info(f"Fallback decoder: {primary} -> ollama (local)")
+        fallback_config = PipelineConfig(
+            ollama_base_url=config.ollama_base_url,
+            remote_provider="ollama",
+            remote_model=config.offline_model or DEFAULT_REMOTE_MODELS["ollama"],
+            log_level=config.log_level,
+            request_timeout=config.request_timeout,
+        )
+        return OllamaRemoteDecoder(fallback_config, client)
+    return None

@@ -1,0 +1,18 @@
+# ============================================================================
+# Grafana Dashboard Provisioning — auto-loads dashboards on container start
+# ============================================================================
+# This file is mounted into the Grafana container at:
+#   /etc/grafana/provisioning/dashboards/dashboards.yml
+# ============================================================================
+
+apiVersion: 1
+
+providers:
+  - name: LatentGate
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true

@@ -12,6 +12,11 @@ export default defineConfig({
       'Referrer-Policy': 'strict-origin-when-cross-origin'
     }
   },
+  define: {
+    // Expose Vercel system env vars to the frontend
+    'import.meta.env.VITE_VERCEL_ENV': JSON.stringify(process.env.VERCEL_ENV || 'development'),
+    'import.meta.env.VITE_VERCEL_URL': JSON.stringify(process.env.VERCEL_URL || 'localhost:5173'),
+  },
   build: {
     rollupOptions: {
       output: {

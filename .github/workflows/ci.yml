@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
+  workflow_call:
 permissions:
   contents: read
 
@@ -30,13 +31,13 @@ jobs:
           pip install pytest pytest-cov black ruff
 
       - name: Lint with ruff
-        run: ruff check latent_gate/
+        run: ruff check latent_gate/ tests/
 
       - name: Format check with black
         run: black --check latent_gate/
 
       - name: Run tests with coverage
-        run: pytest tests/ -v --cov=latent_gate --cov-report=xml
+        run: pytest tests/ -v --cov=latent_gate --cov-report=xml --skip-ollama-check
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12'
@@ -45,6 +46,28 @@ jobs:
           file: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          twine check --strict dist/*
+
+      - name: Smoke-test the wheel in a clean env
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install dist/*.whl
+          /tmp/smoke/bin/python -c "import latent_gate; print(latent_gate.__version__)"
+          /tmp/smoke/bin/latent-gate --help > /dev/null
 
   frontend:
     runs-on: ubuntu-latest
@@ -65,7 +88,7 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: npm run lint 2>/dev/null || true
+        run: npm run lint
 
       - name: Build
         run: npm run build
@@ -74,7 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: vscode-extension
+        working-directory: integrations/vscode-extension
     steps:
       - uses: actions/checkout@v4
 
@@ -83,7 +106,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: vscode-extension/package-lock.json
+          cache-dependency-path: integrations/vscode-extension/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -92,11 +115,11 @@ jobs:
         run: npx tsc -p ./
 
       - name: Package
-        run: npx vsce package --allow-missing-repository --out latent-gate-vscode.vsix 2>/dev/null || echo "Packaging skipped (no publisher token)"
+        run: npx vsce package --out latent-gate-vscode.vsix
 
       - name: Upload VSIX
         uses: actions/upload-artifact@v4
         with:
           name: vsix
-          path: vscode-extension/latent-gate-vscode.vsix
+          path: integrations/vscode-extension/latent-gate-vscode.vsix
           if-no-files-found: ignore

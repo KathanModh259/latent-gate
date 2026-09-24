@@ -5,6 +5,61 @@ All notable changes to LatentGate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-09-24
+
+**Upgrade recommended for all 1.2.4 users of `latent-gate-api`** — the REST server in 1.2.4 returned 404 for every route.
+
+### Added
+
+- **Deterministic token optimizer** (`latent_gate.optimizer`, `from latent_gate import optimize`) — protected spans (code, URLs, quotes) restored byte-for-byte; lossless whitespace/JSON/duplicate folding; log-run folding that keeps first/last lines and value ranges; pleasantry and filler-phrase removal ("Could you please, if at all possible, kindly…" → the instruction, while soft preferences like "if possible" are kept); BM25 question-aware sentence selection under a token budget that never drops the user's ask. Output never exceeds the input and is deterministic, so provider prompt caching keeps working. Levels: `lossless`, `balanced` (default), `aggressive`
+- **Fact-checked LLM compression** — a local-LLM rewrite is used only if it is smaller *and* keeps every number, identifier, URL, file name and code span; otherwise the deterministic result is sent
+- **Question-aware RAG compression** — `query_documents` spends the budget on the most relevant sentences across all documents and drops irrelevant documents entirely
+- **Real token counting** — `tiktoken` (`o200k_base`) via the new `[tokens]` extra, with a calibrated fallback estimate (~6% mean error)
+- **Reproducible benchmark** — `latent-gate --optimizer-benchmark` (no Ollama needed) reports tokens saved and facts kept per level
+- CLI: `--level`, `--deterministic`, `--max-tokens`; config/env: `compression_level`, `compression_strategy`; `/compress` responses include `method`
+
+### Fixed
+
+- **Reported savings were not measured** — original and compressed sizes used different formulas (unchanged text reported 1.2x savings), and the no-Ollama fallback hard-coded a 4x claim; all counts now use the same real tokenizer
+- **Compression silently dropped content** — the compact payload capped constraints at 5 and truncated code to 300 chars; the fallback kept only the first/last 20% of lines (or 35%/20% of words)
+- **~80 tokens of fixed overhead per cloud call** — the system prompt (65 → 24 tokens) described every input as "visual scene data"; text queries also sent the question twice plus a filler "Process and respond." question
+- Website demo displayed a hard-coded "80%" whenever the API reported 0 tokens saved
+- **Cloud answers were truncated at 500 tokens** — every provider hard-coded `max_tokens: 500`; now `max_output_tokens` (default 4096, `LATENTGATE_MAX_OUTPUT_TOKENS`), and a cut-off answer logs a warning instead of looking complete. Anthropic refusals raise a clear error
+- **API server served no routes** — the default `app` was created before its routers were populated; every endpoint (including `/health`) returned 404 in the CLI, Docker image and Helm chart
+- **Wrong model sent to non-OpenAI providers** — `remote_model` defaulted to `gpt-4o-mini` for every provider (e.g. Anthropic, Google, Groq, Ollama); it now defaults per provider, including when set via `LATENTGATE_REMOTE_PROVIDER`
+- **Dedup cache could return another query's answer** — keys used only a 500-char prefix, mixed compress-only and full queries, and cached transient "decode skipped" errors; keys now hash the full input, and image keys hash file contents
+- **Selective decoding ignored the question** — asking a new question about a similar frame returned the previous answer
+- **Missing Ollama model crashed instead of falling back** — HTTP errors (e.g. 404 for an unpulled model) now engage the model fallback chain with an `ollama pull` hint
+- **Offline-first mode sent the cloud model name to Ollama** — now uses `offline_model`; the automatic Ollama fallback also honours it
+- **OpenAI-compatible endpoint dropped the system prompt** — `system` messages are now forwarded to the decoder
+- `import latent_gate` / `from latent_gate import *` failed without numpy on a base install
+- Loading plugins from a directory always failed (`importlib.util` not imported)
+- `LATENTGATE_TRACK_COSTS` and `LATENTGATE_COST_DB_PATH` were documented but ignored
+- `/query/universal` returned 400 instead of 403 for disallowed image paths; path-validation 403s could surface as 500s
+- Non-UTF-8 JSON bodies crashed the request middleware
+
+### Security
+
+- `/compress` and `/ws/compress` now require `LATENTGATE_API_KEY` when it is configured (WebSocket clients may pass `?api_key=`)
+- `/compress` input capped at 100k characters; WebSocket input is length-checked and shares the API concurrency limit
+- File paths are redacted from every query response, not just image/text queries
+
+### Changed
+
+- API server starts immediately and warms models in the background (`LATENTGATE_PRELOAD=false` to disable), so health probes pass during warm-up
+- Model preload probes Ollama once and skips cleanly when it is down, instead of retrying every model (startup went from minutes to ~2s without Ollama)
+- When the Ollama server is unreachable, compression falls back immediately instead of trying each model in the chain
+- Anthropic default model is now `claude-sonnet-5`; pricing added for `claude-sonnet-5` and `claude-haiku-4-5`
+- Package version is single-sourced from `latent_gate.__version__`
+- New env vars: `LATENTGATE_MAX_CONCURRENT_REQUESTS`, `LATENTGATE_MAX_IMAGE_DIMENSION`
+
+### CI / Release
+
+- CI now runs on `master` (it previously targeted a non-existent `main` branch and never ran)
+- Fixed VS Code extension job paths (`integrations/vscode-extension`)
+- New packaging job builds the sdist/wheel, runs `twine check --strict`, and smoke-tests the wheel in a clean venv
+- Publishing is gated on the full CI suite, verifies the release tag matches the package version, and dry-runs TestPyPI before PyPI
+
 ## [1.2.4] - 2026-07-13
 
 ### Added

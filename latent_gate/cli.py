@@ -20,6 +20,8 @@ Usage:
 
 import sys
 import json
+import csv
+import io
 import argparse
 
 from latent_gate.config import PipelineConfig, DEFAULT_REMOTE_MODELS
@@ -59,7 +61,9 @@ def main():
     parser.add_argument("question", nargs="?", default="", help="Question (optional)")
     parser.add_argument("--text", "-t", default="", help="Text prompt (short text only)")
     parser.add_argument(
-        "--text-file", "-tf", default="",
+        "--text-file",
+        "-tf",
+        default="",
         help="Read text from file. Use '-' to read from stdin (pipe).",
     )
     parser.add_argument(
@@ -85,11 +89,19 @@ def main():
 
     # Provider settings
     parser.add_argument(
-        "--provider", "-p",
+        "--provider",
+        "-p",
         default="ollama",
         choices=[
-            "openai", "anthropic", "google", "ollama",
-            "groq", "deepseek", "together", "azure", "bedrock",
+            "openai",
+            "anthropic",
+            "google",
+            "ollama",
+            "groq",
+            "deepseek",
+            "together",
+            "azure",
+            "bedrock",
         ],
         help="Remote LLM provider (default: ollama)",
     )
@@ -97,25 +109,78 @@ def main():
     parser.add_argument("--predictor-model", default="llama3:8b", help="Ollama text model")
     parser.add_argument("--remote-model", default="", help="Remote model name")
     parser.add_argument(
-        "--api-key", default="",
+        "--api-key",
+        default="",
         help="API key for cloud provider (WARNING: visible in shell history — prefer env vars)",
     )
     parser.add_argument("--ollama-url", default="http://localhost:11434", help="Ollama server URL")
 
     # Compression settings
     parser.add_argument(
-        "--mode", "-m",
+        "--mode",
+        "-m",
         default="auto",
         choices=["auto", "compress", "summarize", "condense", "code"],
         help="Text compression mode (default: auto-detect)",
+    )
+    parser.add_argument(
+        "--level",
+        default="balanced",
+        choices=["lossless", "balanced", "aggressive"],
+        help="Token optimizer level: lossless (meaning unchanged), balanced (default), "
+        "aggressive (question-aware sentence selection to ~50%%)",
+    )
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="Never use the local LLM for compression (fast, reproducible, cache-friendly)",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=0,
+        help="Token budget for the compressed prompt (enables sentence selection when exceeded)",
+    )
+    parser.add_argument(
+        "--optimizer-benchmark",
+        action="store_true",
+        help="Benchmark the deterministic optimizer on built-in realistic inputs (no Ollama needed)",
     )
 
     # Output settings
     parser.add_argument("--no-cache", action="store_true", help="Disable caching")
     parser.add_argument("--json", action="store_true", help="Output full result as JSON")
+    parser.add_argument(
+        "--output-format",
+        "-of",
+        default="",
+        choices=["", "json", "jsonl", "csv"],
+        help="Output format: json (pretty), jsonl (one line per result), csv, or plain (default)",
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable debug logging")
 
     args = parser.parse_args()
+
+    if args.optimizer_benchmark:
+        from latent_gate.benchmark import run_optimizer_benchmark
+
+        report = run_optimizer_benchmark()
+        if args.json:
+            print(json.dumps(report, indent=2))
+            return
+        print(f"\nLatentGate optimizer benchmark (token counter: {report['token_counter']})")
+        for level, data in report["levels"].items():
+            print(
+                f"\n  {level:<10} {data['original_tokens']:>6} -> {data['optimized_tokens']:>6} tokens"
+                f"  saved {data['savings_pct']:>5}%  facts kept {data['mean_fact_retention_pct']:>5}%"
+                f"  p95 {data['p95_latency_ms']}ms"
+            )
+            for row in data["cases"]:
+                print(
+                    f"    {row['name']:<20} {row['original_tokens']:>6} -> {row['optimized_tokens']:>6}"
+                    f"  saved {row['savings_pct']:>5}%  facts {row['fact_retention_pct']:>5}%"
+                )
+        return
 
     # ---- Determine remote model default ----
     if not args.remote_model:
@@ -150,10 +215,14 @@ def main():
             print("  LatentGate Benchmark")
             print(f"  Cases:           {summary['successful']}/{summary['cases']} successful")
             print(f"  Avg latency:     {summary['average_latency_ms']}ms")
-            print(f"  p50 / p95:       {summary['p50_latency_ms']}ms / {summary['p95_latency_ms']}ms")
+            print(
+                f"  p50 / p95:       {summary['p50_latency_ms']}ms / {summary['p95_latency_ms']}ms"
+            )
             print(f"  Original tokens: ~{summary['original_tokens']}")
             print(f"  Sent tokens:     ~{summary['compressed_tokens']}")
-            print(f"  Saved:           ~{summary['tokens_saved']} ({summary['savings_percentage']}%)")
+            print(
+                f"  Saved:           ~{summary['tokens_saved']} ({summary['savings_percentage']}%)"
+            )
             print(f"  Ratio:           {summary['average_compression_ratio']}x")
             if args.benchmark_output:
                 print(f"  Report:          {args.benchmark_output}")
@@ -173,7 +242,10 @@ def main():
             # Read from stdin (piped input)
             text_input = _read_stdin()
             if not text_input:
-                print("Error: No input received from stdin. Pipe text or use --text-file <path>", file=sys.stderr)
+                print(
+                    "Error: No input received from stdin. Pipe text or use --text-file <path>",
+                    file=sys.stderr,
+                )
                 sys.exit(1)
         else:
             try:
@@ -193,8 +265,8 @@ def main():
     if not args.image and not text_input:
         parser.error(
             "No input provided. Give me something to work with:\n"
-            "  An image:       latent-gate photo.jpg \"What is this?\"\n"
-            "  Short text:     latent-gate --text \"your prompt\"\n"
+            '  An image:       latent-gate photo.jpg "What is this?"\n'
+            '  Short text:     latent-gate --text "your prompt"\n'
             "  Long text:      latent-gate --text-file prompt.txt\n"
             "  Piped text:     cat prompt.txt | latent-gate --text-file -"
         )
@@ -210,6 +282,9 @@ def main():
         enable_caching=not args.no_cache,
         log_level="DEBUG" if args.verbose else "WARNING",
         selective_decoding=False,
+        compression_level=args.level,
+        compression_strategy="deterministic" if args.deterministic else "auto",
+        target_token_budget=args.max_tokens,
     )
 
     # ---- Run pipeline ----
@@ -218,10 +293,14 @@ def main():
             # Fast path: bypass full pipeline, use TextProcessor directly
             from latent_gate.text_processor import TextProcessor
             from latent_gate.fast_client import FastClient
+
             tp_config = PipelineConfig(
                 ollama_base_url=args.ollama_url,
                 predictor_model=args.predictor_model,
                 log_level="DEBUG" if args.verbose else "WARNING",
+                compression_level=args.level,
+                compression_strategy="deterministic" if args.deterministic else "auto",
+                target_token_budget=args.max_tokens,
             )
             client = FastClient(tp_config)
             processor = TextProcessor(tp_config, client=client)
@@ -253,8 +332,22 @@ def main():
         sys.exit(1)
 
     # ---- Output ----
-    if args.json:
+    output_format = args.output_format or ("json" if args.json else "")
+
+    if output_format == "json":
         print(json.dumps(result, indent=2, default=str))
+    elif output_format == "jsonl":
+        print(json.dumps(result, default=str))
+    elif output_format == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["field", "value"])
+        for key, value in sorted(result.items()):
+            if isinstance(value, (dict, list)):
+                writer.writerow([key, json.dumps(value, default=str)])
+            else:
+                writer.writerow([key, str(value)])
+        print(output.getvalue().strip())
     else:
         print(f"\n{'=' * 55}")
         print(f"  Mode:            {result.get('input_type', 'unknown')}")

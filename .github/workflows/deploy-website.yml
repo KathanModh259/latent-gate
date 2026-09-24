@@ -1,0 +1,85 @@
+name: Deploy Website to Vercel
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "website/**"
+      - ".github/workflows/deploy-website.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - preview
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel environment info
+        run: |
+          ENV="preview"
+          if [[ "${{ github.ref }}" == "refs/heads/master" && "${{ github.event_name }}" != "workflow_dispatch" ]]; then
+            ENV="production"
+          elif [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
+            ENV="production"
+          fi
+          vercel pull --yes --environment=$ENV --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build project artifacts
+        run: |
+          ENV_FLAG=""
+          if [[ "${{ github.ref }}" == "refs/heads/master" && "${{ github.event_name }}" != "workflow_dispatch" ]]; then
+            ENV_FLAG="--prod"
+          elif [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
+            ENV_FLAG="--prod"
+          fi
+          vercel build $ENV_FLAG --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy to Vercel
+        id: deploy
+        run: |
+          ENV_FLAG=""
+          if [[ "${{ github.ref }}" == "refs/heads/master" && "${{ github.event_name }}" != "workflow_dispatch" ]]; then
+            ENV_FLAG="--prod"
+          elif [[ "${{ github.event.inputs.environment }}" == "production" ]]; then
+            ENV_FLAG="--prod"
+          fi
+          DEPLOY_URL=$(vercel deploy --prebuilt $ENV_FLAG --token=${{ secrets.VERCEL_TOKEN }})
+          echo "deployed_url=$DEPLOY_URL" >> $GITHUB_OUTPUT
+
+      - name: Output deployment URL
+        run: |
+          echo "Deployed to: ${{ steps.deploy.outputs.deployed_url }}"

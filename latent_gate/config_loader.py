@@ -235,6 +235,8 @@ def _apply_env_overrides(data: Dict[str, Any], prefix: str) -> Dict[str, Any]:
             lambda x: x.lower() in ("true", "1", "yes"),
         ),
         f"{prefix}TARGET_TOKEN_BUDGET": ("target_token_budget", int),
+        f"{prefix}COMPRESSION_STRATEGY": "compression_strategy",
+        f"{prefix}COMPRESSION_LEVEL": "compression_level",
         f"{prefix}SELECTIVE_DECODING": (
             "selective_decoding",
             lambda x: x.lower() in ("true", "1", "yes"),
@@ -243,6 +245,11 @@ def _apply_env_overrides(data: Dict[str, Any], prefix: str) -> Dict[str, Any]:
         f"{prefix}USE_EMBEDDINGS": ("use_embeddings", lambda x: x.lower() in ("true", "1", "yes")),
         f"{prefix}TEMPERATURE": ("temperature", float),
         f"{prefix}REQUEST_TIMEOUT": ("request_timeout", int),
+        f"{prefix}MAX_OUTPUT_TOKENS": ("max_output_tokens", int),
+        f"{prefix}TRACK_COSTS": ("track_costs", lambda x: x.lower() in ("true", "1", "yes")),
+        f"{prefix}COST_DB_PATH": "cost_db_path",
+        f"{prefix}MAX_CONCURRENT_REQUESTS": ("max_concurrent_requests", int),
+        f"{prefix}MAX_IMAGE_DIMENSION": ("max_image_dimension", int),
     }
 
     for env_var, mapping in env_mapping.items():
@@ -287,10 +294,13 @@ def _config_to_dict(config: PipelineConfig) -> Dict[str, Any]:
         "use_embeddings": config.use_embeddings,
         "temperature": config.temperature,
         "request_timeout": config.request_timeout,
+        "max_output_tokens": config.max_output_tokens,
         "offline_first": config.offline_first,
         "offline_model": config.offline_model,
         "adaptive_compression": config.adaptive_compression,
         "target_token_budget": config.target_token_budget,
+        "compression_strategy": config.compression_strategy,
+        "compression_level": config.compression_level,
     }
 
 
@@ -367,12 +377,9 @@ def get_config(
     if config_file and os.path.exists(config_file):
         return load_config(config_file, env_prefix)
 
-    # Apply env overrides to default config
-    config = PipelineConfig()
-    config_dict = _config_to_dict(config)
-
-    # Apply env overrides with proper type conversion
-    config_dict = _apply_env_overrides(config_dict, env_prefix)
+    # Only env-provided fields are passed, so dataclass defaults (including the
+    # provider-dependent remote_model) are resolved against the final settings.
+    config_dict = _apply_env_overrides({}, env_prefix)
     config = _dict_to_config(config_dict)
 
     return config

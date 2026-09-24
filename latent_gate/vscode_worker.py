@@ -83,9 +83,7 @@ class Worker:
                 "tokens_estimated": payload.compressed_token_count,
                 "original_tokens": payload.original_token_count,
                 "compression_ratio": (
-                    f"{payload.compression_ratio:.1f}x"
-                    if payload.compression_ratio > 0
-                    else "1.0x"
+                    f"{payload.compression_ratio:.1f}x" if payload.compression_ratio > 0 else "1.0x"
                 ),
                 "tokens_saved": payload.original_token_count - payload.compressed_token_count,
                 "payload": payload.to_dict(),

@@ -13,7 +13,12 @@ permissions:
   packages: write
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
   pypi:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,7 +26,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
       - name: Install build dependencies
         run: |
@@ -40,18 +45,31 @@ jobs:
           name: dist
           path: dist/
 
+      - name: Verify tag matches package version
+        if: github.event_name == 'release'
+        run: |
+          PKG_VERSION=$(python -c "import re;print(re.search(r'__version__ = \"(.+?)\"', open('latent_gate/__init__.py').read()).group(1))")
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match pyproject version $PKG_VERSION"
+            exit 1
+          fi
+
+      - name: Publish to TestPyPI (dry run)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        continue-on-error: true
+        with:
+          password: ${{ secrets.TESTPYPI_API_TOKEN }}
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
 
-      - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.TESTPYPI_API_TOKEN }}
-          repository-url: https://test.pypi.org/legacy/
-
   docker:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,10 +107,14 @@ jobs:
           cache-to: type=gha,mode=max
 
   extension:
+    needs: ci
     runs-on: ubuntu-latest
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
     defaults:
       run:
-        working-directory: vscode-extension
+        working-directory: integrations/vscode-extension
     steps:
       - uses: actions/checkout@v4
 
@@ -101,7 +123,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: vscode-extension/package-lock.json
+          cache-dependency-path: integrations/vscode-extension/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -110,21 +132,25 @@ jobs:
         run: npx tsc -p ./
 
       - name: Package
-        run: npx vsce package --allow-missing-repository --out latent-gate-vscode.vsix
+        run: npx vsce package --out latent-gate-vscode.vsix
 
       - name: Upload VSIX to release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: vscode-extension/latent-gate-vscode.vsix
+          files: integrations/vscode-extension/latent-gate-vscode.vsix
 
       - name: Publish to VS Code Marketplace
         if: startsWith(github.ref, 'refs/tags/') && env.VSCE_PAT != ''
-        run: npx vsce publish --pat ${{ secrets.VSCE_PAT }} --packagePath latent-gate-vscode.vsix
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx vsce publish --packagePath latent-gate-vscode.vsix
+
+      # Open VSX serves Cursor, Windsurf, VSCodium and Gitpod users
+      - name: Publish to Open VSX
+        if: startsWith(github.ref, 'refs/tags/') && env.OVSX_PAT != ''
+        run: npx --yes ovsx publish latent-gate-vscode.vsix -p "$OVSX_PAT"
 
   website:
+    needs: ci
     runs-on: ubuntu-latest
     defaults:
       run:

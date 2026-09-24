@@ -55,7 +55,9 @@ TEXT: none"""
 
     def test_encode_image_bad_format(self):
         # Create a temp file with bad extension
-        import tempfile, os
+        import tempfile
+        import os
+
         with tempfile.NamedTemporaryFile(suffix=".xyz", delete=False) as f:
             f.write(b"fake data")
             temp_path = f.name

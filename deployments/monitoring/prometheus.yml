@@ -1,0 +1,39 @@
+# ============================================================================
+# Prometheus Configuration for LatentGate
+# ============================================================================
+# Scrapes the LatentGate API server's /metrics endpoint.
+# Used by the monitoring docker-compose profile.
+# ============================================================================
+
+global:
+  scrape_interval:     10s   # How often to scrape targets
+  evaluation_interval: 10s   # How often to evaluate rules
+  external_labels:
+    monitor: 'latentgate'
+
+# Rule files can be loaded from here
+rule_files: []
+
+scrape_configs:
+  # LatentGate API Server
+  - job_name: 'latentgate'
+    scrape_interval: 10s
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets:
+          - 'latent-gate:8000'
+        labels:
+          service: 'latentgate-api'
+          environment: 'production'
+
+  # Docker / Node metrics (optional — uncomment if cadvisor or node_exporter is available)
+  # - job_name: 'docker'
+  #   static_configs:
+  #     - targets: ['cadvisor:8080']
+
+  # Self-monitoring: Prometheus
+  - job_name: 'prometheus'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['localhost:9090']

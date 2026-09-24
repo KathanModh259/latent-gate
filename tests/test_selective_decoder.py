@@ -1,6 +1,5 @@
 """Tests for SelectiveDecoder."""
 
-import pytest
 from latent_gate.selective_decoder import SelectiveDecoder
 from latent_gate.payload import SemanticPayload
 

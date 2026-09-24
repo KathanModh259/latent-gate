@@ -19,6 +19,7 @@ Requires:
     pip install latent-gate[api]
 """
 
+import json
 import logging
 import os
 import time
@@ -29,7 +30,19 @@ from contextlib import asynccontextmanager
 from collections import defaultdict
 
 try:
-    from fastapi import FastAPI, HTTPException, APIRouter, UploadFile, File, Form, Request, Depends, Security
+    from fastapi import (
+        FastAPI,
+        HTTPException,
+        APIRouter,
+        UploadFile,
+        File,
+        Form,
+        Request,
+        Depends,
+        Security,
+        WebSocket,
+        WebSocketDisconnect,
+    )
     from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
@@ -45,9 +58,15 @@ from latent_gate.config import PipelineConfig
 from latent_gate.config_loader import get_config
 from latent_gate.pipeline import LatentGatePipeline
 from latent_gate.remote_decoder import RemoteDecodeError
+from latent_gate.metrics import (
+    record_error,
+    record_tokens,
+    set_pipeline_ready,
+    setup_metrics,
+    MetricsMiddleware,
+)
 from latent_gate.security import (
     PathAccessError,
-    get_client_ip,
     get_client_ip,
     redact_query_result,
     validate_image_path_access,
@@ -89,7 +108,9 @@ class TextQueryRequest(BaseModel):
 class ConversationQueryRequest(BaseModel):
     """Request model for conversation queries."""
 
-    messages: List[dict] = Field(..., max_length=1000, description="Conversation messages [{role, content}]")
+    messages: List[dict] = Field(
+        ..., max_length=1000, description="Conversation messages [{role, content}]"
+    )
     new_question: str = Field(..., max_length=2000, description="New question to ask")
 
 
@@ -173,7 +194,8 @@ async def _rate_limit_cleanup_loop():
             now = time.time()
             stale_threshold = now - RATE_LIMIT_WINDOW * 2
             stale_ips = [
-                ip for ip, timestamps in _request_counts.items()
+                ip
+                for ip, timestamps in _request_counts.items()
                 if not timestamps or timestamps[-1] < stale_threshold
             ]
             for ip in stale_ips:
@@ -192,21 +214,27 @@ async def lifespan(app: FastAPI):
     # Startup
     start_time = time.time()
     config = app.state.config
-    
+
     host = os.getenv("LATENTGATE_HOST", "127.0.0.1")
     if host == "0.0.0.0" and not os.getenv("LATENTGATE_API_KEY"):
         logger.warning(
             "\n" + "!" * 80 + "\n"
             "SECURITY WARNING: Binding to 0.0.0.0 without LATENTGATE_API_KEY set.\n"
             "Your API is completely unauthenticated and accessible to anyone on your network.\n"
-            "Set LATENTGATE_API_KEY in your environment to secure the server.\n"
-            + "!" * 80
+            "Set LATENTGATE_API_KEY in your environment to secure the server.\n" + "!" * 80
         )
 
     app.state.request_semaphore = asyncio.Semaphore(config.max_concurrent_requests)
     app.state.stats_lock = asyncio.Lock()
     app.state.cleanup_task = asyncio.create_task(_rate_limit_cleanup_loop())
-    pipeline = LatentGatePipeline(config, preload=True)
+    pipeline = LatentGatePipeline(config, preload=False)
+    # Warm models in the background so /health answers immediately (k8s/Docker
+    # probes) instead of waiting for multi-GB models to load into GPU memory.
+    if os.getenv("LATENTGATE_PRELOAD", "true").lower() in ("true", "1", "yes"):
+        app.state.preload_task = asyncio.create_task(
+            asyncio.to_thread(pipeline.client.preload_models)
+        )
+    set_pipeline_ready(True)
     logger.info("LatentGate API server started")
 
     yield
@@ -214,8 +242,11 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if getattr(app.state, "cleanup_task", None):
         app.state.cleanup_task.cancel()
+    if getattr(app.state, "preload_task", None) and not app.state.preload_task.done():
+        app.state.preload_task.cancel()
     if pipeline:
         pipeline.close()
+    set_pipeline_ready(False)
     logger.info("LatentGate API server stopped")
 
 
@@ -295,6 +326,47 @@ async def _record_query(result: dict) -> None:
         query_count += 1
         if "tokens_saved" in result:
             total_tokens_saved += result["tokens_saved"]
+    # Also record to Prometheus metrics
+    record_tokens(
+        input_tokens=result.get("original_tokens", 0) or result.get("tokens_estimated", 0),
+        output_tokens=result.get("tokens_estimated", 0),
+        saved=result.get("tokens_saved", 0),
+    )
+
+
+# Error-type to HTTP-status mapping for _handle_api_error
+_error_type_to_status = [
+    (FileNotFoundError, 404),
+    (ValueError, 400),
+]
+_error_502_types = (ConnectionError, TimeoutError, PermissionError, RemoteDecodeError)
+
+
+def _handle_api_error(e: Exception, context: str = "API call") -> HTTPException:
+    """
+    Convert an exception to the appropriate HTTPException based on its type.
+
+    Replaces the repetitive try/except/HTTPException pattern in every endpoint
+    with a single call. Maps known exception types to the correct HTTP status code.
+    """
+    # Already an HTTP error (e.g. 403 from path validation) — keep its status
+    if isinstance(e, HTTPException):
+        return e
+
+    # Exceptions that have specific status codes (client errors — don't track as server errors)
+    for exc_type, status in _error_type_to_status:
+        if isinstance(e, exc_type):
+            return HTTPException(status_code=status, detail=_sanitize_error(e))
+
+    # 502 Bad Gateway for network / upstream failures
+    if isinstance(e, _error_502_types):
+        record_error("upstream_failure")
+        return HTTPException(status_code=502, detail=_sanitize_error(e))
+
+    # 500 for everything else — log + track as server error
+    record_error(context.replace(" ", "_"))
+    logger.error(f"{context} failed: {e}", exc_info=True)
+    return HTTPException(status_code=500, detail=_sanitize_error(e))
 
 
 def _docs_enabled() -> bool:
@@ -303,6 +375,114 @@ def _docs_enabled() -> bool:
     if os.getenv("LATENTGATE_API_KEY"):
         return os.getenv("LATENTGATE_ENABLE_DOCS", "").lower() in ("true", "1", "yes")
     return True
+
+
+security = HTTPBearer(auto_error=False)
+
+
+def _verify_api_key_dependency(credentials: HTTPAuthorizationCredentials = Security(security)):
+    """Dependency for FastAPI routes that need API key auth."""
+    expected_key = os.getenv("LATENTGATE_API_KEY")
+    if not expected_key:
+        return True  # No API key configured, skip auth
+    provided = credentials.credentials if credentials else None
+    if not verify_api_key(provided, expected_key):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API Key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return True
+
+
+def clean_json_quotes(body_str: str) -> str:
+    """Escape unescaped double quotes inside JSON string values."""
+    import re
+
+    keys_to_clean = ["text", "question", "image_path", "image", "new_question"]
+    cleaned = body_str
+
+    for key in keys_to_clean:
+        start_pat = rf'"{key}"\s*:\s*"'
+        match = re.search(start_pat, cleaned)
+        if match:
+            start_idx = match.end()
+            rest = cleaned[start_idx:]
+
+            # Find the boundary: another key like "other_key":
+            boundary_idx = len(rest)
+            next_key_match = re.search(r'"\w+"\s*:', rest)
+            if next_key_match:
+                boundary_idx = next_key_match.start()
+
+            # Find candidates for the closing quote: any quote before the boundary
+            # followed by optional whitespace and , or }
+            end_candidates = []
+            for m in re.finditer(r'"\s*(?:,|\})', rest[:boundary_idx]):
+                end_candidates.append(m.start())
+
+            if end_candidates:
+                # The correct closing quote is the last candidate before the next key
+                end_idx = end_candidates[-1]
+                inner_value = rest[:end_idx]
+
+                # Escape any unescaped quotes in the inner value
+                escaped_inner = re.sub(r'(?<!\\)"', r"\"", inner_value)
+
+                # Reconstruct
+                cleaned = cleaned[:start_idx] + escaped_inner + rest[end_idx:]
+    return cleaned
+
+
+class SafeJSONASGIMiddleware:
+    """ASGI Middleware that intercepts and cleans unescaped quotes in JSON request bodies."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["method"] in ("POST", "PUT"):
+            # Check headers
+            headers = dict(scope.get("headers", []))
+            content_type = headers.get(b"content-type", b"").decode("utf-8")
+            if "application/json" in content_type:
+                # Buffer request body
+                body_parts = []
+                more_body = True
+                while more_body:
+                    message = await receive()
+                    body_parts.append(message.get("body", b""))
+                    more_body = message.get("more_body", False)
+
+                body_bytes = b"".join(body_parts)
+
+                # Try to repair unescaped quotes; leave undecodable bodies for
+                # FastAPI to reject with a normal 422 instead of crashing here.
+                try:
+                    body_str = body_bytes.decode("utf-8")
+                    json.loads(body_str)
+                except UnicodeDecodeError:
+                    pass
+                except json.JSONDecodeError:
+                    body_bytes = clean_json_quotes(body_str).encode("utf-8")
+
+                # Re-create receive channel
+                body_offset = 0
+
+                async def new_receive():
+                    nonlocal body_offset
+                    chunk = body_bytes[body_offset:]
+                    body_offset = len(body_bytes)
+                    return {
+                        "type": "http.request",
+                        "body": chunk,
+                        "more_body": False,
+                    }
+
+                await self.app(scope, new_receive, send)
+                return
+
+        await self.app(scope, receive, send)
 
 
 def create_app(config: Optional[PipelineConfig] = None) -> FastAPI:
@@ -325,7 +505,10 @@ def create_app(config: Optional[PipelineConfig] = None) -> FastAPI:
     if cors_origins_str:
         cors_origins = [o.strip() for o in cors_origins_str.split(",") if o.strip()]
     else:
-        cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]  # Default to local frontend
+        cors_origins = [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]  # Default to local frontend
 
     new_app.add_middleware(
         CORSMiddleware,
@@ -334,10 +517,35 @@ def create_app(config: Optional[PipelineConfig] = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    new_app.add_middleware(SafeJSONASGIMiddleware)
+
+    # Metrics — mount /metrics endpoint (opt-out via LATENTGATE_ENABLE_METRICS=false)
+    enable_metrics = os.getenv("LATENTGATE_ENABLE_METRICS", "true").lower() in ("true", "1", "yes")
+    if enable_metrics:
+        metrics_app = setup_metrics()
+        if metrics_app:
+            new_app.mount("/metrics", metrics_app)
+            new_app.add_middleware(MetricsMiddleware)
+            logger.info("Metrics endpoint mounted at /metrics")
+        else:
+            logger.info(
+                "prometheus-client not installed — install with: pip install latent-gate[metrics]"
+            )
+    else:
+        logger.info("Metrics disabled via LATENTGATE_ENABLE_METRICS=false")
+
+    # HTTPException handler — return the original status code
+    @new_app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+        )
 
     # Global exception handler for unhandled errors
     @new_app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
+        record_error("unhandled")
         logger.error(f"Unhandled exception: {exc}", exc_info=True)
         return JSONResponse(
             status_code=500,
@@ -348,32 +556,19 @@ def create_app(config: Optional[PipelineConfig] = None) -> FastAPI:
     new_app.state.config = config or get_config()
 
     new_app.include_router(public_router)
-    new_app.include_router(api_router)
+    # Apply API key auth to the api_router via a wrapping router
+    api_router_with_auth = APIRouter(dependencies=[Depends(_verify_api_key_dependency)])
+    api_router_with_auth.include_router(api_router)
+    new_app.include_router(api_router_with_auth)
     return new_app
 
 
 # ============================================================================
-# Default app instance
+# Routers (populated by the endpoint decorators below)
 # ============================================================================
 
-security = HTTPBearer(auto_error=False)
-
-def _verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security)):
-    expected_key = os.getenv("LATENTGATE_API_KEY")
-    provided = credentials.credentials if credentials else None
-    if not verify_api_key(provided, expected_key):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or missing API Key",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return True
-
-
 public_router = APIRouter()
-api_router = APIRouter(dependencies=[Depends(_verify_api_key)])
-
-app = create_app()
+api_router = APIRouter()
 
 
 # ============================================================================
@@ -395,9 +590,7 @@ async def health_check(request: Request):
             import requests
 
             def _check_ollama():
-                resp = requests.get(
-                    f"{app.state.config.ollama_base_url}/api/tags", timeout=3
-                )
+                resp = requests.get(f"{app.state.config.ollama_base_url}/api/tags", timeout=3)
                 if resp.status_code == 200:
                     models = resp.json().get("models", [])
                     return True, len(models) > 0
@@ -447,15 +640,8 @@ async def query_image(request: ImageQueryRequest, http_request: Request):
 
         return QueryResponse(**redact_query_result(result))
 
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=_sanitize_error(e))
-    except (ConnectionError, TimeoutError, PermissionError) as e:
-        raise HTTPException(status_code=502, detail=_sanitize_error(e))
-    except RemoteDecodeError as e:
-        raise HTTPException(status_code=502, detail=_sanitize_error(e))
     except Exception as e:
-        logger.error(f"Image query failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=_sanitize_error(e))
+        raise _handle_api_error(e, "Image query")
 
 
 @api_router.post("/query/text", response_model=QueryResponse)
@@ -479,13 +665,8 @@ async def query_text(request: TextQueryRequest, http_request: Request):
 
         return QueryResponse(**redact_query_result(result))
 
-    except (ConnectionError, TimeoutError, PermissionError) as e:
-        raise HTTPException(status_code=502, detail=_sanitize_error(e))
-    except RemoteDecodeError as e:
-        raise HTTPException(status_code=502, detail=_sanitize_error(e))
     except Exception as e:
-        logger.error(f"Text query failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=_sanitize_error(e))
+        raise _handle_api_error(e, "Text query")
 
 
 @api_router.post("/query/conversation", response_model=QueryResponse)
@@ -505,15 +686,10 @@ async def query_conversation(request: ConversationQueryRequest, http_request: Re
         )
         await _record_query(result)
 
-        return QueryResponse(**result)
+        return QueryResponse(**redact_query_result(result))
 
-    except (ConnectionError, TimeoutError, PermissionError) as e:
-        raise HTTPException(status_code=502, detail=_sanitize_error(e))
-    except RemoteDecodeError as e:
-        raise HTTPException(status_code=502, detail=_sanitize_error(e))
     except Exception as e:
-        logger.error(f"Conversation query failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=_sanitize_error(e))
+        raise _handle_api_error(e, "Conversation query")
 
 
 @api_router.post("/query/documents", response_model=QueryResponse)
@@ -533,15 +709,10 @@ async def query_documents(request: DocumentsQueryRequest, http_request: Request)
         )
         await _record_query(result)
 
-        return QueryResponse(**result)
+        return QueryResponse(**redact_query_result(result))
 
-    except (ConnectionError, TimeoutError, PermissionError) as e:
-        raise HTTPException(status_code=502, detail=_sanitize_error(e))
-    except RemoteDecodeError as e:
-        raise HTTPException(status_code=502, detail=_sanitize_error(e))
     except Exception as e:
-        logger.error(f"Documents query failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=_sanitize_error(e))
+        raise _handle_api_error(e, "Documents query")
 
 
 @api_router.post("/query/universal", response_model=QueryResponse)
@@ -555,7 +726,7 @@ async def query_universal(request: UniversalQueryRequest, http_request: Request)
 
     try:
         if request.image:
-            validate_image_path_access(request.image, http_request.app.state.config)
+            _validate_image_path(request.image, http_request.app.state.config)
         result = await _run_pipeline_call(
             pipeline.query_universal,
             text=request.text,
@@ -564,17 +735,10 @@ async def query_universal(request: UniversalQueryRequest, http_request: Request)
         )
         await _record_query(result)
 
-        return QueryResponse(**result)
+        return QueryResponse(**redact_query_result(result))
 
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=_sanitize_error(e))
-    except (ConnectionError, TimeoutError, PermissionError) as e:
-        raise HTTPException(status_code=502, detail=_sanitize_error(e))
-    except RemoteDecodeError as e:
-        raise HTTPException(status_code=502, detail=_sanitize_error(e))
     except Exception as e:
-        logger.error(f"Universal query failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=_sanitize_error(e))
+        raise _handle_api_error(e, "Universal query")
 
 
 @api_router.post("/query/image/upload", response_model=QueryResponse)
@@ -617,21 +781,392 @@ async def query_image_upload(
         result = await _run_pipeline_call(pipeline.query, tmp_path, question)
         await _record_query(result)
 
-        return QueryResponse(**result)
+        return QueryResponse(**redact_query_result(result))
 
-    except (ConnectionError, TimeoutError, PermissionError) as e:
-        raise HTTPException(status_code=502, detail=_sanitize_error(e))
-    except RemoteDecodeError as e:
-        raise HTTPException(status_code=502, detail=_sanitize_error(e))
     except Exception as e:
-        logger.error(f"Image upload query failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=_sanitize_error(e))
+        raise _handle_api_error(e, "Image upload query")
     finally:
         if tmp_path and os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
             except OSError:
                 logger.warning(f"Failed to clean up temp file: {tmp_path}")
+
+
+# ============================================================================
+# Batch Compression Endpoint
+# ============================================================================
+
+
+class BatchCompressRequest(BaseModel):
+    """Request model for batch prompt compression."""
+
+    texts: List[str] = Field(
+        ..., min_length=1, max_length=100, description="Array of verbose prompts to compress"
+    )
+
+
+class BatchCompressItem(BaseModel):
+    """Single item in batch compression response."""
+
+    index: int
+    original_prompt: str
+    compressed_prompt: str
+    original_tokens: int
+    compressed_tokens: int
+    tokens_saved: int
+    compression_ratio: str
+    processing_time_ms: float
+    error: Optional[str] = None
+
+
+class BatchCompressResponse(BaseModel):
+    """Response model for batch compression."""
+
+    results: List[BatchCompressItem]
+    total_original_tokens: int
+    total_compressed_tokens: int
+    total_tokens_saved: int
+    average_compression_ratio: str
+    total_processing_time_ms: float
+
+
+@api_router.post("/compress/batch", response_model=BatchCompressResponse)
+async def compress_batch(request: BatchCompressRequest, http_request: Request):
+    """Compress multiple verbose prompts in parallel."""
+    global pipeline
+    _check_rate_limit(http_request)
+
+    if not pipeline:
+        raise HTTPException(status_code=503, detail="Pipeline not initialized")
+
+    try:
+        start_time = time.time()
+
+        async def _compress_single(index: int, text: str) -> BatchCompressItem:
+            try:
+                result = await _run_pipeline_call(pipeline.compress_prompt, text)
+                return BatchCompressItem(
+                    index=index,
+                    original_prompt=result.get("original_prompt", text),
+                    compressed_prompt=result.get("compressed_prompt", ""),
+                    original_tokens=result.get("original_tokens", 0),
+                    compressed_tokens=result.get("compressed_tokens", 0),
+                    tokens_saved=result.get("tokens_saved", 0),
+                    compression_ratio=result.get("compression_ratio", "1.0x"),
+                    processing_time_ms=result.get("processing_time_ms", 0),
+                )
+            except Exception as e:
+                return BatchCompressItem(
+                    index=index,
+                    original_prompt=text,
+                    compressed_prompt="",
+                    original_tokens=0,
+                    compressed_tokens=0,
+                    tokens_saved=0,
+                    compression_ratio="0.0x",
+                    processing_time_ms=0,
+                    error=str(e),
+                )
+
+        tasks = [_compress_single(i, text) for i, text in enumerate(request.texts)]
+        results = await asyncio.gather(*tasks)
+
+        total_time = (time.time() - start_time) * 1000
+        total_original = sum(r.original_tokens for r in results)
+        total_compressed = sum(r.compressed_tokens for r in results)
+        total_saved = sum(r.tokens_saved for r in results)
+        avg_ratio = total_original / max(total_compressed, 1)
+
+        await _record_query({"tokens_saved": total_saved})
+
+        return BatchCompressResponse(
+            results=sorted(results, key=lambda r: r.index),
+            total_original_tokens=total_original,
+            total_compressed_tokens=total_compressed,
+            total_tokens_saved=total_saved,
+            average_compression_ratio=f"{avg_ratio:.1f}x",
+            total_processing_time_ms=round(total_time, 1),
+        )
+
+    except Exception as e:
+        raise _handle_api_error(e, "Batch compression")
+
+
+# ============================================================================
+# OpenAI-Compatible API Wrapper
+# ============================================================================
+
+
+class OpenAIChatMessage(BaseModel):
+    """OpenAI-compatible chat message format."""
+
+    role: str = Field(..., description="Message role: system, user, or assistant")
+    content: str = Field(..., description="Message content")
+
+
+class OpenAIChatRequest(BaseModel):
+    """OpenAI-compatible chat completion request."""
+
+    model: str = Field(
+        "latent-gate", description="Model identifier (ignored, always uses LatentGate compression)"
+    )
+    messages: List[OpenAIChatMessage] = Field(..., min_length=1, description="Chat messages")
+    temperature: Optional[float] = Field(None, ge=0, le=2, description="Sampling temperature")
+    max_tokens: Optional[int] = Field(None, ge=1, le=4096, description="Maximum tokens to generate")
+    stream: Optional[bool] = Field(False, description="Whether to stream the response")
+
+
+class OpenAIUsage(BaseModel):
+    """OpenAI-compatible token usage."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+class OpenAIChatChoice(BaseModel):
+    """OpenAI-compatible chat completion choice."""
+
+    index: int = 0
+    message: OpenAIChatMessage
+    finish_reason: str = "stop"
+
+
+class OpenAIChatResponse(BaseModel):
+    """OpenAI-compatible chat completion response."""
+
+    id: str = "chatcmpl-latent-gate"
+    object: str = "chat.completion"
+    created: int = 0
+    model: str = "latent-gate"
+    choices: List[OpenAIChatChoice]
+    usage: OpenAIUsage
+
+
+@api_router.post("/v1/chat/completions", response_model=OpenAIChatResponse)
+async def openai_chat_completions(request: OpenAIChatRequest, http_request: Request):
+    """
+    OpenAI-compatible chat completions endpoint.
+
+    Accepts the standard OpenAI request format, runs LatentGate compression
+    on the conversation, then returns a response. This lets any tool that
+    supports OpenAI's API automatically use LatentGate compression.
+    """
+    global pipeline
+    _check_rate_limit(http_request)
+
+    if not pipeline:
+        raise HTTPException(status_code=503, detail="Pipeline not initialized")
+
+    # Validate before try block so HTTPException bypasses error handling
+    user_messages = [m for m in request.messages if m.role == "user"]
+    system_message = next((m.content for m in request.messages if m.role == "system"), None)
+
+    if not user_messages:
+        raise HTTPException(status_code=400, detail="No user message found in request")
+
+    try:
+
+        # Combine all user messages for compression
+        full_user_text = "\n".join(m.content for m in user_messages)
+        last_question = user_messages[-1].content
+
+        # Step 1: Compress locally via LatentGate
+        compressed = await _run_pipeline_call(pipeline.compress_prompt, full_user_text)
+        compressed_text = compressed.get("compressed_prompt", full_user_text)
+        # System instructions are kept verbatim (not compressed) so behavior rules survive
+        decoder_input = (
+            f"System instructions:\n{system_message}\n\n{compressed_text}"
+            if system_message
+            else compressed_text
+        )
+
+        original_tokens = compressed.get("original_tokens", len(full_user_text.split()))
+        compressed_tokens = compressed.get("compressed_tokens", len(compressed_text.split()))
+
+        # Step 2: Forward compressed prompt directly to the remote decoder
+        # (Skip query_text to avoid double compression and auto-detect issues)
+        try:
+            answer, api_usage = await _run_pipeline_call(
+                pipeline.remote_decoder.decode, decoder_input, last_question
+            )
+            completion_tokens = api_usage.get("completion_tokens", 0) if api_usage else 0
+            response_content = (
+                f"[⚡ LatentGate: ~{original_tokens} → ~{compressed_tokens} tokens | "
+                f"Saved ~{compressed.get('tokens_saved', 0)} | "
+                f"{compressed.get('compression_ratio', '1.0x')}x compression]\n\n"
+                f"{answer}"
+            )
+            return OpenAIChatResponse(
+                id=f"chatcmpl-{int(time.time())}",
+                created=int(time.time()),
+                model=f"latent-gate+{pipeline.config.remote_provider}",
+                choices=[
+                    OpenAIChatChoice(
+                        index=0,
+                        message=OpenAIChatMessage(
+                            role="assistant",
+                            content=response_content,
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+                usage=OpenAIUsage(
+                    prompt_tokens=compressed_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=compressed_tokens + completion_tokens,
+                ),
+            )
+        except Exception as e:
+            logger.warning(f"Remote LLM call failed, returning compressed prompt: {e}")
+
+        # Fallback: return compressed prompt directly if remote unavailable
+        response_content = (
+            f"[⚡ LatentGate: ~{original_tokens} → ~{compressed_tokens} tokens | "
+            f"Saved ~{compressed.get('tokens_saved', 0)} | "
+            f"{compressed.get('compression_ratio', '1.0x')}x compression]\n\n"
+            f"{compressed_text}"
+        )
+
+        return OpenAIChatResponse(
+            id=f"chatcmpl-{int(time.time())}",
+            created=int(time.time()),
+            model="latent-gate",
+            choices=[
+                OpenAIChatChoice(
+                    index=0,
+                    message=OpenAIChatMessage(
+                        role="assistant",
+                        content=response_content,
+                    ),
+                    finish_reason="stop",
+                )
+            ],
+            usage=OpenAIUsage(
+                prompt_tokens=compressed_tokens,
+                completion_tokens=0,
+                total_tokens=compressed_tokens,
+            ),
+        )
+
+    except Exception as e:
+        raise _handle_api_error(e, "OpenAI-compatible endpoint")
+
+
+# ============================================================================
+# WebSocket Endpoint
+# ============================================================================
+
+
+@public_router.websocket("/ws/compress")
+async def websocket_compress(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time compression.
+
+    Send a JSON message with {"text": "..."} and receive streaming
+    compression progress updates, then the final result.
+
+    Message flow:
+      Client -> {"text": "Your long prompt here..."}
+      Server <- {"status": "compressing", "original_tokens": 500}
+      Server <- {"status": "progress", "stage": "extracting|processing|done"}
+      Server <- {"status": "complete", "result": {...}}
+    """
+    # Browsers cannot set headers on WebSocket upgrades, so also accept ?api_key=
+    expected_key = os.getenv("LATENTGATE_API_KEY")
+    if expected_key:
+        auth = websocket.headers.get("authorization", "")
+        provided = (
+            auth[7:]
+            if auth.lower().startswith("bearer ")
+            else websocket.query_params.get("api_key")
+        )
+        if not verify_api_key(provided, expected_key):
+            await websocket.close(code=1008, reason="Invalid or missing API Key")
+            return
+
+    await websocket.accept()
+    try:
+        while True:
+            # Receive text input
+            data = await websocket.receive_json()
+            text = data.get("text", "") if isinstance(data, dict) else ""
+            if not text or not isinstance(text, str):
+                await websocket.send_json({"status": "error", "message": "No text provided"})
+                continue
+            try:
+                validate_text_length(text)
+            except ValueError as e:
+                await websocket.send_json({"status": "error", "message": str(e)})
+                continue
+
+            if not pipeline:
+                await websocket.send_json(
+                    {"status": "error", "message": "Pipeline not initialized"}
+                )
+                continue
+
+            # Estimate tokens
+            est_tokens = max(1, len(text.split()))
+            await websocket.send_json(
+                {
+                    "status": "compressing",
+                    "original_tokens": est_tokens,
+                    "stage": "extracting",
+                }
+            )
+
+            try:
+                # Off the event loop, sharing the HTTP endpoints' concurrency cap
+                result = await _run_pipeline_call(pipeline.compress_prompt, text)
+
+                await websocket.send_json(
+                    {
+                        "status": "progress",
+                        "stage": "done",
+                        "compressed_tokens": result.get("compressed_tokens", 0),
+                        "tokens_saved": result.get("tokens_saved", 0),
+                    }
+                )
+
+                # Send final result
+                await websocket.send_json(
+                    {
+                        "status": "complete",
+                        "result": {
+                            "original_prompt": (
+                                result.get("original_prompt", text)[:200] + "..."
+                                if len(result.get("original_prompt", text)) > 200
+                                else result.get("original_prompt", text)
+                            ),
+                            "compressed_prompt": result.get("compressed_prompt", ""),
+                            "original_tokens": result.get("original_tokens", 0),
+                            "compressed_tokens": result.get("compressed_tokens", 0),
+                            "tokens_saved": result.get("tokens_saved", 0),
+                            "compression_ratio": result.get("compression_ratio", "1.0x"),
+                            "processing_time_ms": result.get("processing_time_ms", 0),
+                        },
+                    }
+                )
+
+            except Exception as e:
+                await websocket.send_json(
+                    {
+                        "status": "error",
+                        "message": f"Compression failed: {str(e)}",
+                    }
+                )
+
+    except WebSocketDisconnect:
+        logger.debug("WebSocket client disconnected")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 # ============================================================================
@@ -642,7 +1177,7 @@ async def query_image_upload(
 class CompressRequest(BaseModel):
     """Request model for prompt compression."""
 
-    text: str = Field(..., description="Verbose prompt to compress")
+    text: str = Field(..., max_length=100000, description="Verbose prompt to compress")
 
 
 class CompressResponse(BaseModel):
@@ -655,11 +1190,20 @@ class CompressResponse(BaseModel):
     tokens_saved: int
     compression_ratio: str
     processing_time_ms: float
+    method: Optional[str] = Field(None, description="optimizer/<level> or llm/<model>")
 
 
-@api_router.post("/compress", response_model=CompressResponse)
+@public_router.post(
+    "/compress",
+    response_model=CompressResponse,
+    dependencies=[Depends(_verify_api_key_dependency)],
+)
 async def compress_prompt(request: CompressRequest, http_request: Request):
-    """Compress a verbose prompt without calling the cloud LLM."""
+    """Compress a verbose prompt without calling the cloud LLM.
+
+    Open when LATENTGATE_API_KEY is unset (used by the website demo);
+    requires the bearer key once LATENTGATE_API_KEY is configured.
+    """
     global pipeline
     _check_rate_limit(http_request)
 
@@ -669,11 +1213,17 @@ async def compress_prompt(request: CompressRequest, http_request: Request):
     try:
         result = await _run_pipeline_call(pipeline.compress_prompt, request.text)
         return CompressResponse(**result)
-    except (ConnectionError, TimeoutError) as e:
-        raise HTTPException(status_code=502, detail=_sanitize_error(e))
     except Exception as e:
-        logger.error(f"Prompt compression failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=_sanitize_error(e))
+        raise _handle_api_error(e, "Prompt compression")
+
+
+# ============================================================================
+# Default app instance
+# ============================================================================
+
+# Must be created AFTER every route above is registered: include_router()
+# copies routes at call time, so routers populated later would be empty.
+app = create_app()
 
 
 # ============================================================================

@@ -8,7 +8,7 @@ description: |
   RAG sources, or when approaching token limits.
 version: 0.3.0
 author: Kathan Modh
-license: MIT
+license: Proprietary (see LICENSE)
 ---
 
 # LatentGate Token Compression Skill

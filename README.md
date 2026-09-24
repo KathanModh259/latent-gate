@@ -4,21 +4,26 @@
 
 ### *Process Locally. Send Smart. Pay Less.*
 
-**A VL-JEPA-inspired pipeline that compresses images, text, conversations, and RAG documents locally via Ollama, then sends only compact semantic payloads to any LLM API — cutting token costs by ~80%.**
+**A VL-JEPA-inspired pipeline that compresses images, text, conversations, and RAG documents locally via Ollama, then sends only compact payloads to any LLM API — every saving measured with a real tokenizer and checked for lost facts.**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.3.0-orange.svg)](CHANGELOG.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Ollama](https://img.shields.io/badge/Ollama-local%20LLM-black.svg)](https://ollama.com)
 [![MCP](https://img.shields.io/badge/MCP-supported-purple.svg)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/tests-8%20passed-brightgreen.svg)](tests/)
+[![Prometheus](https://img.shields.io/badge/Metrics-Prometheus-orange.svg)](deployments/monitoring/)
+[![Grafana](https://img.shields.io/badge/Dashboard-Grafana-blue.svg)](deployments/monitoring/)
+[![k6](https://img.shields.io/badge/Load%20Test-k6-7d64ff.svg)](scripts/loadtest.js)
+[![Vercel](https://img.shields.io/badge/Deploy-Vercel-black.svg)](.github/workflows/deploy-website.yml)
+[![CI](https://github.com/KathanModh259/latent-gate/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/KathanModh259/latent-gate/actions/workflows/ci.yml)
 [![Downloads](https://img.shields.io/pypi/dm/latent-gate?logo=pypi)](https://pypi.org/project/latent-gate/)
-[![Awesome](https://awesome.re/badge.svg)](https://awesome.re)
 
-[**Quick Start**](#quick-start) | [**Python API**](#python-api) | [**REST API**](#rest-api) | [**AI Tool Integrations**](#ai-coding-tool-integration-mcp) | [**Benchmarks**](#cost-benchmarks) | [**Contributing**](#contributing) | [**Community**](#community)
+[**Use in Claude**](#use-it-in-claude) | [**Quick Start**](#quick-start) | [**Python API**](#python-api) | [**REST API**](#rest-api) | [**Monitoring**](#monitoring) | [**Load Testing**](#load-testing) | [**Deployment**](#vercel-deployment) | [**AI Tools**](#ai-coding-tool-integration-mcp) | [**Benchmarks**](#cost-benchmarks) | [**Contributing**](#contributing)
 
 </div>
+
+<!-- mcp-name: io.github.KathanModh259/latent-gate -->
 
 ---
 
@@ -38,7 +43,7 @@ LatentGate:   Image -> Local Ollama (FREE) -> Cloud LLM (200 tokens) -> Answer
 | Feature | Description |
 |---------|-------------|
 | **Local-First** | Vision and text compression runs on Ollama (free, no API key needed) |
-| **~80% Token Savings** | Send ~200 tokens instead of ~1,200 for image queries |
+| **Token Optimizer** | Deterministic, fact-preserving compression: 66% fewer tokens on a realistic dev corpus in ~1ms ([benchmark](#cost-benchmarks)) |
 | **MCP Server** | Works with Claude Desktop, Cursor, Cline, Continue, Zed |
 | **Selective Decoding** | For video, only call API when scene changes (~2.85x fewer calls) with cosine similarity |
 | **Text Compression** | Long prompts, conversations, RAG docs compressed locally |
@@ -54,6 +59,53 @@ LatentGate:   Image -> Local Ollama (FREE) -> Cloud LLM (200 tokens) -> Answer
 | **Docker Support** | Dockerfile and docker-compose for easy deployment |
 | **Plugin System** | Custom processors for domain-specific compression |
 | **Multi-Language** | Support for 30+ languages with automatic detection |
+
+---
+
+## Use it in Claude
+
+LatentGate plugs into Claude as an MCP server. Its optimizer tools work **offline, with no
+Ollama and no API key** — Claude reads big logs, JSON dumps and docs through it and spends a
+fraction of the context. A 400-line error log goes from 14,400 to ~100 tokens.
+
+Requires [uv](https://docs.astral.sh/uv/) (`uvx` fetches LatentGate from PyPI on first run).
+
+**Claude Code — plugin (MCP server + a skill that tells Claude when to use it):**
+
+```text
+/plugin marketplace add KathanModh259/latent-gate
+/plugin install latent-gate@latent-gate
+```
+
+**Claude Code — MCP server only:**
+
+```bash
+claude mcp add latent-gate -- uvx --from "latent-gate[mcp,tokens]" latent-gate-mcp
+```
+
+**Claude Desktop** — add to `claude_desktop_config.json` and restart:
+
+```json
+{
+  "mcpServers": {
+    "latent-gate": {
+      "command": "uvx",
+      "args": ["--from", "latent-gate[mcp,tokens]", "latent-gate-mcp"]
+    }
+  }
+}
+```
+
+Then just ask: *"Read `logs/app.log` with latent-gate and tell me why orders fail."*
+
+| Tool | Needs Ollama | What it does |
+|------|:---:|------|
+| `read_file_optimized` | no | Read a text file and return its optimized form (use for files you read, not files you edit) |
+| `optimize_text` | no | Optimize text you already have, optionally toward a `question` / `max_tokens` budget |
+| `count_tokens` | no | Count tokens (tiktoken `o200k_base`) |
+| `compress_image` | yes | Describe an image locally as a ~150-token scene payload |
+| `compress_text` / `compress_conversation` / `compress_documents` | yes | Optimizer + fact-checked local-LLM compression |
+| `get_stats` | yes | Session statistics |
 
 ---
 
@@ -83,6 +135,9 @@ pip install latent-gate[langchain]
 # With AWS Bedrock support
 pip install latent-gate[bedrock]
 
+# Exact token counts via tiktoken (otherwise a calibrated ~6%-error estimate)
+pip install latent-gate[tokens]
+
 # With all features
 pip install latent-gate[all]
 ```
@@ -93,6 +148,15 @@ pip install latent-gate[all]
 ollama pull llava:7b      # Vision model (required for image queries)
 ollama pull llama3:8b     # Text model (required for text compression & prediction)
 ```
+
+### One-Command Quickstart
+
+```bash
+chmod +x scripts/quickstart.sh
+./scripts/quickstart.sh
+```
+
+This starts everything: Ollama → pulls models → API server → website. See [scripts/quickstart.sh](scripts/quickstart.sh) for options like `--no-pull`, `--no-website`, `--port 9000`.
 
 ### CLI Usage
 
@@ -111,6 +175,12 @@ latent-gate photo.jpg "Analyze" --text "Extra context..." -v
 
 # Full JSON output
 latent-gate photo.jpg "Describe" --json -v
+
+# Compress only, deterministically (no LLM call, ~1ms, reproducible)
+cat prompt.txt | latent-gate --text-file - --compress-only --deterministic --level balanced
+
+# Reproduce the token-savings benchmark (no Ollama needed)
+latent-gate --optimizer-benchmark
 
 # Production benchmark
 latent-gate --benchmark --benchmark-output reports/benchmark.json
@@ -353,20 +423,28 @@ with LatentGatePipeline(config) as pipeline:
 | `ANTHROPIC_API_KEY` | Anthropic API key | - |
 | `GOOGLE_API_KEY` | Google API key | - |
 | `LATENTGATE_REMOTE_PROVIDER` | Override remote provider | `openai` |
-| `LATENTGATE_REMOTE_MODEL` | Override remote model | `gpt-4o-mini` |
+| `LATENTGATE_REMOTE_MODEL` | Override remote model | provider default (e.g. `gpt-4o-mini`, `claude-sonnet-5`) |
 | `LATENTGATE_VISION_MODEL` | Override vision model | `llava:7b` |
 | `LATENTGATE_LOG_LEVEL` | Log level | `INFO` |
 | `LATENTGATE_LOG_FILE` | Log file path | - |
 | `LATENTGATE_LOG_JSON` | JSON log format | `false` |
 | `LATENTGATE_TRACK_COSTS` | Enable cost analytics | `false` |
-| `LATENTGATE_COST_DB_PATH` | Path to SQLite DB | `latentgate_costs.db` |
+| `LATENTGATE_COST_DB_PATH` | Path to SQLite DB | `.latentgate_costs.db` |
+| `LATENTGATE_API_KEY` | Require `Authorization: Bearer <key>` on the API (incl. `/compress`; WebSocket clients may pass `?api_key=`) | unset (open) |
+| `LATENTGATE_COMPRESSION_LEVEL` | Token optimizer level: `lossless`, `balanced`, `aggressive` | `balanced` |
+| `LATENTGATE_COMPRESSION_STRATEGY` | `auto` (optimizer + fact-checked local LLM) or `deterministic` | `auto` |
+| `LATENTGATE_TARGET_TOKEN_BUDGET` | Max tokens for a compressed prompt (0 = no budget) | `0` |
+| `LATENTGATE_MAX_OUTPUT_TOKENS` | Max tokens the cloud model may generate per answer | `4096` |
+| `LATENTGATE_PRELOAD` | Warm Ollama models in the background at API startup | `true` |
+| `LATENTGATE_MAX_CONCURRENT_REQUESTS` | Max concurrent pipeline calls in the API server | `3` |
+| `LATENTGATE_CORS_ORIGINS` | Comma-separated allowed CORS origins | `http://localhost:5173` |
 
 ### Save Config
 
 ```python
 from latent_gate import PipelineConfig, save_config
 
-config = PipelineConfig(remote_provider="anthropic", remote_model="claude-sonnet-4-20250514")
+config = PipelineConfig(remote_provider="anthropic", remote_model="claude-sonnet-5")
 save_config(config, "my_config.yaml")
 ```
 
@@ -375,10 +453,16 @@ save_config(config, "my_config.yaml")
 ## Docker
 
 ```bash
-# Start with Docker Compose (includes Ollama)
-docker-compose up -d
+# Start full stack (API + Ollama)
+docker compose up -d
 
-# Or build and run manually
+# Pull models first (one-time setup)
+docker compose --profile setup up ollama-init
+
+# Start with monitoring (Prometheus + Grafana)
+docker compose --profile monitoring up -d
+
+# Build and run manually
 docker build -t latent-gate .
 docker run -p 8000:8000 latent-gate
 ```
@@ -386,13 +470,35 @@ docker run -p 8000:8000 latent-gate
 The docker-compose setup includes:
 - **latent-gate** API server (port 8000)
 - **Ollama** local LLM server (port 11434)
-- **ollama-init** container that auto-pulls required models
+- **ollama-init** container that auto-pulls required models (profile: `setup`)
+- **Prometheus** metrics collector on port 9090 (profile: `monitoring`)
+- **Grafana** dashboard on port 3000 (profile: `monitoring`, credentials: `admin`/`latentgate`)
+
+### Monitoring Stack
+
+Start with monitoring:
+```bash
+docker compose --profile monitoring up -d
+```
+
+Access:
+- **Grafana:** http://localhost:3000 (login: `admin` / `latentgate`)
+- **Prometheus:** http://localhost:9090
+- **Metrics endpoint:** http://localhost:8000/metrics
+
+The LatentGate dashboard auto-loads in Grafana with 9 panels covering request rate, latency percentiles (p50/p95/p99), token savings, error rates, pipeline health, and endpoint breakdown.
+
+Customize via environment variables:
+- `GRAFANA_ADMIN` — Grafana admin username (default: `admin`)
+- `GRAFANA_PASSWORD` — Grafana password (default: `latentgate`)
+- `GRAFANA_ANONYMOUS` — Enable anonymous access (default: `true`)
+- `LATENTGATE_ENABLE_METRICS` — Enable Prometheus metrics (default: `true`)
 
 ---
 
 ## AI Coding Tool Integration (MCP)
 
-LatentGate works as a Model Context Protocol (MCP) server with every major AI coding tool. Your AI assistant automatically compresses images, long prompts, and documents — saving ~80% on tokens.
+LatentGate works as a Model Context Protocol (MCP) server with every major AI coding tool. Your AI assistant automatically compresses images, long prompts, and documents before they reach the cloud model.
 
 ### Supported Tools
 
@@ -421,33 +527,24 @@ Features:
 
 ### MCP Setup
 
-```bash
-pip install latent-gate[mcp]
-ollama pull llava:7b
-ollama pull llama3:8b
-```
-Add to your tool's MCP config:
+For Claude, see [Use it in Claude](#use-it-in-claude). For Cursor, Cline, Continue, Zed and other
+MCP clients, use the same server command:
 
 ```json
 {
   "mcpServers": {
     "latent-gate": {
-      "command": "latent-gate-mcp",
-      "args": []
+      "command": "uvx",
+      "args": ["--from", "latent-gate[mcp,tokens]", "latent-gate-mcp"]
     }
   }
 }
 ```
 
-### MCP Tools
-
-| Tool | When AI Uses It |
-|------|-----------------|
-| `compress_image` | Before analyzing any image |
-| `compress_text` | For prompts longer than ~500 tokens |
-| `compress_conversation` | When chat history is large |
-| `compress_documents` | For RAG queries |
-| `get_stats` | To check session savings |
+Or install it into your environment (`pip install "latent-gate[mcp,tokens]"`) and use
+`"command": "latent-gate-mcp"`. Note the command is `latent-gate-mcp` — plain `latent-gate`
+is the CLI and will not speak MCP. The image and `compress_*` tools additionally need
+`ollama pull llava:7b` and `ollama pull phi3:mini`.
 
 See `integrations/` folder for detailed setup guides per tool.
 
@@ -469,7 +566,9 @@ See `integrations/` folder for detailed setup guides per tool.
 
 ## Cost Benchmarks
 
-### Image Queries (by provider)
+### Image Queries (by provider, estimated)
+
+Estimates from each provider's published image-token formulas versus a ~150-token local description.
 
 | Provider | Raw Image Tokens | LatentGate Tokens | Savings |
 |----------|:----------------:|:-----------------:|:-------:|
@@ -477,18 +576,51 @@ See `integrations/` folder for detailed setup guides per tool.
 | Claude 3.5 Sonnet (1MP image) | ~1,334 | ~150 | ~89% |
 | Gemini 2.0 Flash | ~258 | ~150 | ~42% |
 
-### Text and Other Modes
+### Text: measured, reproducible
 
-| Scenario | Traditional | LatentGate | Savings |
-|----------|:-----------:|:----------:|:-------:|
-| Long text prompt | ~800 | ~120 | ~85% |
-| Conversation (10 turns) | ~2,500 | ~350 | ~86% |
-| RAG documents (3 docs) | ~3,000 | ~450 | ~85% |
-| Video stream (1 min)* | varies | ~2.85x fewer calls | ~65% |
+Deterministic optimizer on built-in realistic inputs, counted with `tiktoken` (`o200k_base`).
+**Facts kept** = share of numbers, identifiers, URLs, file names and code preserved verbatim.
+Reproduce with `latent-gate --optimizer-benchmark` (no Ollama or API key needed).
 
-*With selective decoding
+| Input | Tokens | `lossless` | `balanced` (default) | `aggressive` |
+|-------|:------:|:----------:|:--------------------:|:------------:|
+| Pretty-printed API JSON | 1,407 | −33%, facts 100% | −33%, facts 100% | −33%, facts 100% |
+| 60 repeated log lines + trace | 2,235 | 0% | **−92%** (ranges kept) | −92% |
+| Prompt pasted 3× | 121 | −61%, facts 100% | −61%, facts 100% | −61%, facts 100% |
+| Verbose spec with 6 requirements | 127 | 0% | −20%, facts 100% | −51%, facts 90% |
+| Code review request | 57 | −5% | −16%, facts 100% | −28%, facts 100% |
+| 5 RAG chunks + question | 190 | 0% | −58% (2 relevant docs kept) | −58% |
+| **Total** | **4,137** | **−13%, facts 100%** | **−66%** | **−67%** |
 
-### At Scale (10,000 image queries with gpt-4o-mini)
+Logs lose individual ids/timestamps when folded (the fold keeps first, last and value ranges),
+and RAG drops facts from documents irrelevant to the question — both by design.
+
+How it works (safest stage first; see `latent_gate/optimizer.py`):
+
+1. **Protect** code blocks, inline code, URLs and quoted strings — restored byte-for-byte
+2. **Lossless**: whitespace/Unicode cleanup, JSON minification (values untouched), duplicate folding
+3. **Log folding**: runs of log lines differing only in numbers/ids → first, last, and ranges
+4. **Filler**: pure pleasantries ("Hi!", "Thanks in advance!") and hedging phrases removed
+5. **Selection** (only over a budget, or `aggressive`): BM25 question-relevance + requirement cues,
+   original order preserved, the user's actual ask is never dropped
+
+Guarantees: output never has more tokens than input; same input → same output (so provider prompt
+caching keeps working); when a local LLM rewrite is used it must be smaller **and** keep every fact,
+otherwise the deterministic result is sent.
+
+```python
+from latent_gate import optimize
+
+r = optimize(long_prompt, question="What failed?", level="balanced", max_tokens=2000)
+print(r.optimized_tokens, r.savings_pct, r.stages)
+```
+
+### Video
+
+Selective decoding skips remote calls for frames similar to the previous one (~2.85x fewer calls
+on typical footage).
+
+### At Scale (10,000 image queries with gpt-4o-mini, estimated)
 
 | Metric | Traditional | LatentGate | Savings |
 |--------|:-----------:|:----------:|:-------:|
@@ -584,7 +716,7 @@ latent-gate/
 │   ├── langchain/            # LangChain integration wrapper
 │   ├── llamaindex/           # LlamaIndex retriever integration
 │   └── openai_functions/     # OpenAI/Anthropic function schemas
-├── tests/                    # 78 tests (unit + integration)
+├── tests/                    # 240+ tests (unit + integration)
 ├── website/                  # React-based analytics dashboard & landing page
 ├── deployments/              # Kubernetes Helm configs
 ├── .github/workflows/        # CI + publish workflows
@@ -599,7 +731,6 @@ latent-gate/
 ## Community
 
 - [**GitHub Discussions**](https://github.com/KathanModh259/latent-gate/discussions) — Feature requests, Q&A, showcases
-- [**Awesome Lists**](#) — Found in awesome-mcp, awesome-ollama, awesome-local-ai
 
 ---
 
@@ -655,7 +786,7 @@ Inspired by [VL-JEPA](https://arxiv.org/abs/2512.10942) (Meta FAIR, 2025).
 
 ## License
 
-MIT License — see [LICENSE](LICENSE).
+Custom Proprietary License — see [LICENSE](LICENSE).
 
 ---
 

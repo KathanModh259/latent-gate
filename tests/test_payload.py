@@ -1,6 +1,5 @@
 """Tests for SemanticPayload."""
 
-import pytest
 from latent_gate.payload import SemanticPayload
 
 

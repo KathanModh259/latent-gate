@@ -7,11 +7,10 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional
 
-
 # Canonical default remote models per provider — import this instead of duplicating.
 DEFAULT_REMOTE_MODELS = {
     "openai": "gpt-4o-mini",
-    "anthropic": "claude-sonnet-4-20250514",
+    "anthropic": "claude-sonnet-5",
     "google": "gemini-2.0-flash",
     "ollama": "llama3:8b",
     "groq": "llama-3.3-70b-versatile",
@@ -44,7 +43,8 @@ class PipelineConfig:
     # ---- Remote (Cloud LLM) Settings ----
     remote_provider: str = "openai"
     remote_api_key: str = ""
-    remote_model: str = "gpt-4o-mini"
+    # Empty = pick the provider's default from DEFAULT_REMOTE_MODELS
+    remote_model: str = ""
     remote_base_url: str = ""
 
     # ---- Pipeline Settings ----
@@ -68,6 +68,14 @@ class PipelineConfig:
     adaptive_compression: bool = False
     target_token_budget: int = 0
 
+    # ---- Token Optimizer ----
+    # auto:          deterministic optimizer, then a local-LLM rewrite that is kept
+    #                only if it is smaller AND preserves every critical fact
+    # deterministic: never call the local LLM for compression (fast, cache-friendly)
+    compression_strategy: str = "auto"
+    # lossless | balanced | aggressive (see latent_gate.optimizer.TokenOptimizer)
+    compression_level: str = "balanced"
+
     # ---- Selective Decoding ----
     selective_decoding: bool = True
     similarity_threshold: float = 0.85
@@ -76,11 +84,11 @@ class PipelineConfig:
     # ---- Ollama Generation Options ----
     temperature: float = 0.1
     request_timeout: int = 120
+    # Max tokens the cloud model may generate per answer (was hard-coded to 500,
+    # which silently truncated long answers and generated code)
+    max_output_tokens: int = 4096
 
-    # ---- Backward Compatibility ----
-    # If predictor_model is set explicitly, it overrides text_fast_model
-    # so existing configs using "llama3:8b" continue to work.
-    predictor_model: Optional[str] = "llama3:8b"
+    predictor_model: Optional[str] = None
 
     def __post_init__(self):
         """Load API key from environment if not set directly."""
@@ -98,6 +106,11 @@ class PipelineConfig:
             env_var = env_map.get(self.remote_provider, "")
             if env_var:
                 self.remote_api_key = os.getenv(env_var, "")
+
+        if not self.remote_model:
+            self.remote_model = DEFAULT_REMOTE_MODELS.get(
+                self.remote_provider.lower(), DEFAULT_REMOTE_MODELS["openai"]
+            )
 
         # If predictor_model was set (e.g. from legacy env var), use it as text_fast_model
         if self.predictor_model and self.predictor_model != "phi3:mini":
@@ -165,11 +178,22 @@ class PipelineConfig:
         if word_count > 1500:
             return True
         complexity_indicators = [
-            "```", "def ", "class ", "function ",
-            "import ", "export ", "interface ",
-            "constraints", "requirements", "architecture",
-            "pipeline", "implementation", "deployment",
-            "migration", "optimization", "benchmark",
+            "```",
+            "def ",
+            "class ",
+            "function ",
+            "import ",
+            "export ",
+            "interface ",
+            "constraints",
+            "requirements",
+            "architecture",
+            "pipeline",
+            "implementation",
+            "deployment",
+            "migration",
+            "optimization",
+            "benchmark",
         ]
         indicator_count = sum(1 for ind in complexity_indicators if ind in text)
         return indicator_count >= 3 or word_count > 800
@@ -188,12 +212,18 @@ class PipelineConfig:
             warnings.append("temperature must be between 0.0 and 2.0")
         if self.request_timeout < 1:
             warnings.append("request_timeout must be at least 1 second")
+        if self.max_output_tokens < 1:
+            warnings.append("max_output_tokens must be at least 1")
         if self.max_local_summary_tokens < 10:
             warnings.append("max_local_summary_tokens should be at least 10")
         if self.max_image_dimension < 256:
             warnings.append("max_image_dimension should be at least 256 pixels")
         if self.max_concurrent_requests < 1:
             warnings.append("max_concurrent_requests must be at least 1")
+        if self.compression_strategy not in ("auto", "deterministic"):
+            warnings.append("compression_strategy must be 'auto' or 'deterministic'")
+        if self.compression_level not in ("lossless", "balanced", "aggressive"):
+            warnings.append("compression_level must be 'lossless', 'balanced' or 'aggressive'")
         if not self.ollama_base_url:
             warnings.append("ollama_base_url is empty")
         if self.ollama_base_url and not self.ollama_base_url.startswith(("http://", "https://")):

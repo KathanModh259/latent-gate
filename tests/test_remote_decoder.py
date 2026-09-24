@@ -1,6 +1,5 @@
 """Tests for RemoteDecoder factory and formatting."""
 
-import pytest
 from latent_gate.config import PipelineConfig
 from latent_gate.remote_decoder import (
     create_decoder,

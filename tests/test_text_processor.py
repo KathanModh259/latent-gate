@@ -1,6 +1,5 @@
 """Tests for TextProcessor and TextPayload."""
 
-import pytest
 from latent_gate.config import PipelineConfig
 from latent_gate.text_processor import TextProcessor, TextPayload
 
@@ -43,7 +42,7 @@ class TestTextPayload:
         p = TextPayload()
         compact = p.to_compact_prompt()
         assert compact == ""
-        assert p.compressed_token_count == 10
+        assert p.compressed_token_count == 0  # real count; the old formula added a fake +10
 
     def test_to_dict_and_from_dict(self):
         p = TextPayload(
@@ -99,8 +98,8 @@ class TestTextProcessorHelpers:
     def test_estimate_tokens(self):
         text = "This is a test sentence with ten words in it"
         tokens = self.processor._estimate_tokens(text)
-        # ~10 words * 1.33 ≈ 13
-        assert 10 < tokens < 20
+        # Real tokenizer count for a 10-word sentence
+        assert 8 <= tokens <= 14
 
     def test_estimate_tokens_empty(self):
         assert self.processor._estimate_tokens("") == 0
@@ -131,7 +130,7 @@ class TestTextProcessorHelpers:
         assert self.processor._detect_mode(text, mode="code") == "code"
 
     def test_parse_response_valid_json(self):
-        raw = '''{"intent": "test intent", "key_entities": ["a", "b"], "constraints": [], "context_summary": "summary", "question_type": "factual", "output_format": "paragraph", "tone": "casual", "data_points": ["42"]}'''
+        raw = """{"intent": "test intent", "key_entities": ["a", "b"], "constraints": [], "context_summary": "summary", "question_type": "factual", "output_format": "paragraph", "tone": "casual", "data_points": ["42"]}"""
         payload = self.processor._parse_response(raw, "original text " * 50)
         assert payload.intent == "test intent"
         assert payload.key_entities == ["a", "b"]
@@ -146,9 +145,9 @@ class TestTextProcessorHelpers:
         assert "not valid JSON" in payload.context_summary
 
     def test_parse_response_with_markdown_fences(self):
-        raw = '''```json
+        raw = """```json
 {"intent": "test", "key_entities": ["x"]}
-```'''
+```"""
         payload = self.processor._parse_response(raw, "original " * 50)
         assert payload.intent == "test"
 
@@ -156,4 +155,4 @@ class TestTextProcessorHelpers:
         """Short text (<100 tokens) should skip compression."""
         payload = self.processor.compress("What is 2+2?")
         assert payload.compression_ratio == 1.0
-        assert payload.intent == "What is 2+2?"
+        assert payload.to_compact_prompt() == "What is 2+2?"  # sent verbatim, not re-framed

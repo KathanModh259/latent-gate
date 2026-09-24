@@ -1,0 +1,138 @@
+{
+  "title": "LatentGate Performance Dashboard",
+  "uid": "latentgate-metrics",
+  "description": "Real-time monitoring dashboard for LatentGate: request rates, token savings, latency, and pipeline health.",
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "tags": ["latent-gate", "ai", "token-compression"],
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "label": "Data Source",
+        "current": {
+          "text": "Prometheus",
+          "value": "prometheus"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request Rate",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "HTTP requests per second, broken down by status code class (2xx success, 4xx client error, 5xx server error).",
+      "targets": [
+        { "refId": "2xx", "expr": "sum(rate(latentgate_requests_total{status_code=~\"2\\\\d+\"}[5m]))", "legendFormat": "2xx Success" },
+        { "refId": "4xx", "expr": "sum(rate(latentgate_requests_total{status_code=~\"4\\\\d+\"}[5m]))", "legendFormat": "4xx Client Error" },
+        { "refId": "5xx", "expr": "sum(rate(latentgate_requests_total{status_code=~\"5\\\\d+\"}[5m]))", "legendFormat": "5xx Server Error" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0, "custom": { "lineInterpolation": "smooth", "showPoints": "never", "spanNulls": true } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "5xx Server Error" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#e02f44" } }] },
+          { "matcher": { "id": "byName", "options": "4xx Client Error" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#f5a623" } }] },
+          { "matcher": { "id": "byName", "options": "2xx Success" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#299c46" } }] }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "title": "Request Latency (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Request latency percentiles calculated from the Prometheus histogram.",
+      "targets": [
+        { "refId": "p50", "expr": "histogram_quantile(0.50, sum(rate(latentgate_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "refId": "p95", "expr": "histogram_quantile(0.95, sum(rate(latentgate_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+        { "refId": "p99", "expr": "histogram_quantile(0.99, sum(rate(latentgate_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "min": 0, "custom": { "lineInterpolation": "smooth", "showPoints": "never", "spanNulls": true } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "p99" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#e02f44" } }] },
+          { "matcher": { "id": "byName", "options": "p95" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#f5a623" } }] },
+          { "matcher": { "id": "byName", "options": "p50" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#299c46" } }] }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "title": "Tokens Processed & Saved",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Token rates: input, output, and saved by compression.",
+      "targets": [
+        { "refId": "input", "expr": "rate(latentgate_tokens_input_total[5m])", "legendFormat": "Input Tokens" },
+        { "refId": "output", "expr": "rate(latentgate_tokens_output_total[5m])", "legendFormat": "Output Tokens" },
+        { "refId": "saved", "expr": "rate(latentgate_tokens_saved_total[5m])", "legendFormat": "Tokens Saved" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "custom": { "lineInterpolation": "smooth", "showPoints": "never", "spanNulls": true } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Tokens Saved" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#73bf69" } }] }
+        ]
+      }
+    },
+    {
+      "id": 4, "title": "Compression Savings", "type": "stat",
+      "gridPos": { "x": 12, "y": 8, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "sum(rate(latentgate_tokens_saved_total[5m])) / sum(rate(latentgate_tokens_input_total[5m])) * 100" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "mode": "absolute", "steps": [ { "color": "#e02f44", "value": null }, { "color": "#f5a623", "value": 30 }, { "color": "#299c46", "value": 70 } ] } } }
+    },
+    {
+      "id": 5, "title": "Error Rate", "type": "stat",
+      "gridPos": { "x": 16, "y": 8, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "sum(rate(latentgate_errors_total[5m]))" }],
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "thresholds": { "mode": "absolute", "steps": [ { "color": "#299c46", "value": null }, { "color": "#f5a623", "value": 0.1 }, { "color": "#e02f44", "value": 1 } ] } } }
+    },
+    {
+      "id": 6, "title": "Pipeline Status", "type": "stat",
+      "gridPos": { "x": 20, "y": 8, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "latentgate_pipeline_ready" }],
+      "fieldConfig": { "defaults": { "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [ { "color": "#e02f44", "value": null }, { "color": "#299c46", "value": 1 } ] }, "mappings": [ { "type": "value", "options": { "0": { "text": "Down" }, "1": { "text": "Running" } } } ] } }
+    },
+    {
+      "id": 7, "title": "Active Requests", "type": "timeseries",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "latentgate_active_requests" }],
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "custom": { "lineInterpolation": "stepAfter", "showPoints": "never" } } }
+    },
+    {
+      "id": 8, "title": "Requests by Endpoint", "type": "piechart",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 10 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "topk(10, sum(rate(latentgate_requests_total[1h])) by (endpoint))", "legendFormat": "{{ endpoint }}" }],
+      "options": { "displayLabels": ["name", "percent"], "legend": { "displayMode": "table", "placement": "right", "show": true } }
+    },
+    {
+      "id": 9, "title": "Latency by Endpoint", "type": "table",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 10 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "p50", "expr": "histogram_quantile(0.50, sum(rate(latentgate_request_duration_seconds_bucket[5m])) by (le, endpoint))", "legendFormat": "p50 {{ endpoint }}", "format": "table", "instant": true },
+        { "refId": "p95", "expr": "histogram_quantile(0.95, sum(rate(latentgate_request_duration_seconds_bucket[5m])) by (le, endpoint))", "legendFormat": "p95 {{ endpoint }}", "format": "table", "instant": true },
+        { "refId": "p99", "expr": "histogram_quantile(0.99, sum(rate(latentgate_request_duration_seconds_bucket[5m])) by (le, endpoint))", "legendFormat": "p99 {{ endpoint }}", "format": "table", "instant": true }
+      ]
+    }
+  ]
+}

@@ -32,6 +32,7 @@ class AsyncLatentGatePipeline:
 
     def __init__(self, config: Optional[PipelineConfig] = None, preload: bool = True):
         from latent_gate.config_loader import get_config
+
         self.config = config or get_config()
         self._pipeline: Optional[LatentGatePipeline] = None
         self._preload = preload

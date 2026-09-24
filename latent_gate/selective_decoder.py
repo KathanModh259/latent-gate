@@ -13,6 +13,7 @@ Supports two similarity methods:
   2. Jaccard similarity on structured fields (fallback, no extra dependencies)
 """
 
+import importlib.util
 import logging
 from typing import Optional
 
@@ -20,14 +21,10 @@ from latent_gate.payload import SemanticPayload
 
 logger = logging.getLogger("latent_gate.selective")
 
-# Try to import sentence-transformers for cosine similarity
-_SENTENCE_TRANSFORMERS_AVAILABLE = False
-try:
-    from sentence_transformers import SentenceTransformer
-
-    _SENTENCE_TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    pass
+# Check for sentence-transformers WITHOUT importing it: the import pulls in torch +
+# transformers (~28s cold), which made every CLI/API/MCP start miss Claude's 30s
+# MCP startup timeout. The real import happens on first use in _get_embedding_model.
+_SENTENCE_TRANSFORMERS_AVAILABLE = importlib.util.find_spec("sentence_transformers") is not None
 
 
 class SelectiveDecoder:
@@ -76,6 +73,8 @@ class SelectiveDecoder:
     def _get_embedding_model(self):
         """Lazy-load the sentence-transformers model."""
         if self._embedding_model is None:
+            from sentence_transformers import SentenceTransformer
+
             logger.info("Loading sentence-transformers model (all-MiniLM-L6-v2)...")
             self._embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
         return self._embedding_model

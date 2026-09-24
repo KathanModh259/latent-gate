@@ -20,6 +20,8 @@ services:
       - LATENTGATE_TEXT_FAST_MODEL=${LATENTGATE_TEXT_FAST_MODEL:-phi3:mini}
       - LATENTGATE_TEXT_SMART_MODEL=${LATENTGATE_TEXT_SMART_MODEL:-qwen2:7b}
       - LATENTGATE_EMBEDDING_MODEL=${LATENTGATE_EMBEDDING_MODEL:-nomic-embed-text}
+      - LATENTGATE_OLLAMA_BASE_URL=http://ollama:11434
+      - LATENTGATE_ENABLE_METRICS=${LATENTGATE_ENABLE_METRICS:-true}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
@@ -51,10 +53,22 @@ services:
     networks:
       - latentgate-network
 
-  # Optional: Model initializer (pulls required models)
+  # GPU-enabled Ollama (requires nvidia-docker)
+  # Uncomment the deploy block to enable GPU acceleration:
+  # deploy:
+  #   resources:
+  #     reservations:
+  #       devices:
+  #         - driver: nvidia
+  #           count: all
+  #           capabilities: [gpu]
+
+  # Model initializer — pulls all required models before the API starts
+  # Run with: docker compose --profile setup up ollama-init
   ollama-init:
     image: ollama/ollama:latest
     container_name: ollama-init
+    profiles: ["setup"]
     depends_on:
       ollama:
         condition: service_healthy
@@ -62,17 +76,20 @@ services:
       - ollama-data:/root/.ollama
     entrypoint: >
       sh -c "
-        echo 'Pulling llava:7b (vision)...'
-        ollama pull llava:7b
-        echo 'Pulling phi3:mini (text-fast)...'
-        ollama pull phi3:mini
-        echo 'Pulling qwen2:7b (text-smart)...'
-        ollama pull qwen2:7b
-        echo 'Pulling nomic-embed-text (embeddings)...'
-        ollama pull nomic-embed-text
-        echo 'Pulling llama3:8b (fallback)...'
-        ollama pull llama3:8b
-        echo 'All models pulled successfully!'
+        echo '========================================'
+        echo '  Pulling required Ollama models...'
+        echo '========================================'
+        for model in llava:7b phi3:mini qwen2:7b nomic-embed-text llama3:8b; do
+          if ollama list | grep -q \"$$model\"; then
+            echo \"  ✓ $$model already pulled\"
+          else
+            echo \"  → Pulling $$model...\"
+            ollama pull $$model
+          fi
+        done
+        echo '========================================'
+        echo '  All models ready! Exiting.'
+        echo '========================================'
       "
     networks:
       - latentgate-network
@@ -83,6 +100,68 @@ volumes:
   latentgate-cache:
     driver: local
   latentgate-logs:
+    driver: local
+
+  # ===========================================================================
+  # Monitoring Stack (Prometheus + Grafana)
+  # Run with: docker compose --profile monitoring up -d
+  # ===========================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: latentgate-prometheus
+    profiles: ["monitoring"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deployments/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    depends_on:
+      - latent-gate
+    restart: unless-stopped
+    networks:
+      - latentgate-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: latentgate-grafana
+    profiles: ["monitoring"]
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN:-admin}
+      # WARNING: Default password is weak. Override GRAFANA_PASSWORD in production.
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-latentgate}
+      - GF_INSTALL_PLUGINS=
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/latentgate-dashboard.json
+      # Security: anonymous access is convenient for local dev but exposes Grafana
+      # to anyone on your network. Set GRAFANA_PASSWORD to a strong password and
+      # set GF_AUTH_ANONYMOUS_ENABLED=false in production.
+      - GF_AUTH_ANONYMOUS_ENABLED=${GRAFANA_ANONYMOUS:-true}
+    volumes:
+      - ./deployments/monitoring/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./deployments/monitoring/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./deployments/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - latentgate-network
+
+volumes:
+  ollama-data:
+    driver: local
+  latentgate-cache:
+    driver: local
+  latentgate-logs:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
     driver: local
 
 networks:
