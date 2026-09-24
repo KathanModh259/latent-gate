@@ -171,8 +171,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      # One archive instead of every build file as a separate release asset
+      - name: Archive website build
+        run: cd dist && zip -qr ../website-dist.zip .
+
       - name: Upload dist to release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: website/dist/**
+          files: website/website-dist.zip
