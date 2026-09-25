@@ -69,6 +69,12 @@ Ollama and no API key** — Claude reads big logs, JSON dumps and docs through i
 fraction of the context. A 400-line error log goes from 14,400 to ~100 tokens.
 
 Requires [uv](https://docs.astral.sh/uv/) (`uvx` fetches LatentGate from PyPI on first run).
+The first run downloads dependencies, which can exceed Claude's 30-second MCP startup limit
+on a slow connection; run this once beforehand (later starts take ~2s):
+
+```bash
+uvx --from "latent-gate[mcp,tokens]" latent-gate --optimizer-benchmark
+```
 
 **Claude Code — plugin (MCP server + a skill that tells Claude when to use it):**
 
