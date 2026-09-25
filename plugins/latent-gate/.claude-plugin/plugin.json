@@ -1,7 +1,7 @@
 {
   "name": "latent-gate",
   "description": "Token optimizer for Claude: read large logs, JSON/API dumps and documents in a fraction of the context. Deterministic, fact-preserving, offline.",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "author": {
     "name": "Kathan Modh",
     "url": "https://github.com/KathanModh259"

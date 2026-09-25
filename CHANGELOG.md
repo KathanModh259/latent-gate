@@ -5,6 +5,19 @@ All notable changes to LatentGate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-09-25
+
+### Added
+
+- `latent-gate mcp` subcommand starts the MCP server. MCP registry clients launch PyPI
+  servers as `uvx <package> [args]`, which runs the `latent-gate` CLI — previously that
+  started the CLI (and waited on stdin) instead of the MCP server
+- Published to the official MCP Registry as `io.github.KathanModh259/latent-gate`
+
+### Changed
+
+- Docker image builds in CI on every push; website build attached to releases as one zip
+
 ## [1.3.0] - 2026-09-24
 
 **Upgrade recommended for all 1.2.4 users of `latent-gate-api`** — the REST server in 1.2.4 returned 404 for every route.

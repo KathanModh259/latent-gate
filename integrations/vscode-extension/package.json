@@ -2,7 +2,7 @@
   "name": "latent-gate-vscode",
   "displayName": "LatentGate — Local-First AI Compression",
   "description": "Compress images, text, conversations, and documents locally via Ollama before sending to cloud LLMs, with measured, fact-preserving token savings.",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "publisher": "KathanModh259",
   "license": "Proprietary",
   "repository": {

@@ -176,3 +176,16 @@ def test_output_token_cap_is_configurable(provider):
 
 def test_default_output_cap_is_not_500():
     assert PipelineConfig().max_output_tokens >= 4096
+
+
+def test_cli_mcp_subcommand_starts_mcp_server(monkeypatch):
+    """Registry clients run `uvx latent-gate mcp`; that must start the MCP server, not the CLI."""
+    import sys
+
+    from latent_gate import cli
+
+    started = []
+    monkeypatch.setattr(sys, "argv", ["latent-gate", "mcp"])
+    monkeypatch.setattr("latent_gate.mcp_server.cli_main", lambda: started.append(True))
+    cli.main()
+    assert started == [True]

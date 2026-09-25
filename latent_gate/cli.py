@@ -18,6 +18,7 @@ Usage:
     latent-gate --text-file prompt.txt --compress-only
 """
 
+import os
 import sys
 import json
 import csv
@@ -35,7 +36,31 @@ def _read_stdin():
     return sys.stdin.read()
 
 
+def _run_mcp_server():
+    """`latent-gate mcp`: start the MCP server over stdio.
+
+    Registry clients launch PyPI servers as `uvx <package> [args]`, which runs this
+    CLI — so the MCP server must be reachable as a subcommand, not only as the
+    separate `latent-gate-mcp` script.
+    """
+    try:
+        from latent_gate.mcp_server import cli_main
+    except ImportError:
+        print(
+            "latent-gate mcp needs the MCP extra:\n"
+            '  pip install "latent-gate[mcp,tokens]"\n'
+            'or run it with uvx:  uvx --from "latent-gate[mcp,tokens]" latent-gate mcp',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    cli_main()
+
+
 def main():
+    # Subcommand dispatch before argparse (whose first positional is an image path)
+    if sys.argv[1:2] == ["mcp"] and not os.path.isfile("mcp"):
+        return _run_mcp_server()
+
     parser = argparse.ArgumentParser(
         prog="latent-gate",
         description=(

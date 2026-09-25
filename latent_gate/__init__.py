@@ -1,5 +1,5 @@
 """
-LatentGate v1.3.0 — Process Locally. Send Smart. Pay Less.
+LatentGate v1.3.1 — Process Locally. Send Smart. Pay Less.
 ============================================================
 VL-JEPA inspired pipeline that compresses images, text, conversations,
 and RAG documents locally via Ollama, then sends compact payloads to
@@ -175,7 +175,7 @@ class _LazyPackageModule(sys.modules[__name__].__class__):
 
 sys.modules[__name__].__class__ = _LazyPackageModule
 
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 __author__ = "Kathan Modh"
 __license__ = "Proprietary"
 __url__ = "https://github.com/KathanModh259/latent-gate"

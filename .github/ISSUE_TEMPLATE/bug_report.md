@@ -26,7 +26,7 @@ If applicable, add screenshots or logs to help explain your problem.
 - OS: [e.g. Windows, macOS, Linux]
 - Python Version: [e.g. 3.10, 3.11]
 - Ollama Version: [e.g. 0.1.48]
-- LatentGate Version: [e.g. 1.3.0]
+- LatentGate Version: [e.g. 1.3.1]
 - Multimodal Vision Model: [e.g. llava:7b]
 - Local Text Predictor Model: [e.g. phi3:mini, qwen2:7b]
 
