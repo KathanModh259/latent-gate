@@ -2,9 +2,9 @@
 
 # LatentGate
 
-### *Process Locally. Send Smart. Pay Less.*
+### *Give your AI the signal, not the noise.*
 
-**A VL-JEPA-inspired pipeline that compresses images, text, conversations, and RAG documents locally via Ollama, then sends only compact payloads to any LLM API — every saving measured with a real tokenizer and checked for lost facts.**
+**An MCP server that shrinks logs, JSON, docs and web pages before your AI reads them — offline, deterministic, in ~3ms, no API key. 66% fewer tokens across a mixed dev corpus; 90%+ on repetitive logs.**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
@@ -24,6 +24,41 @@
 </div>
 
 <!-- mcp-name: io.github.KathanModh259/latent-gate -->
+
+---
+
+## See it work
+
+A 400-line error log, read through LatentGate (`balanced`, measured with `tiktoken`):
+
+```text
+BEFORE  12,037 tokens
+2026-10-08 09:00:00 ERROR order 10000 failed: payment gateway timeout after 2982ms (retry 1/3)
+... 398 more lines in the same shape ...
+
+AFTER   127 tokens  (98.9% saved)
+2026-10-08 09:00:00 INFO app started, 3 workers
+2026-10-08 09:00:00 ERROR order 10000 failed: payment gateway timeout after 2982ms (retry 1/3)
+[… 398 similar lines: order 10001…10398, 2900…3100 ms …]
+2026-10-08 09:06:39 ERROR order 10399 failed: payment gateway timeout after 3030ms (retry 1/3)
+2026-10-08 09:07:00 FATAL circuit breaker open for payments-api
+```
+
+Install it into Claude Code in one line, then ask *"read `app.log` and tell me why orders fail"*:
+
+```bash
+claude mcp add --scope user latent-gate -- uvx --from "latent-gate[mcp,tokens]" latent-gate-mcp
+```
+
+**What you can rely on:** the same input always gives the same output (so provider prompt caching keeps
+working); output is never larger than input; code blocks, URLs and quoted strings come back
+byte-for-byte; `level="lossless"` changes nothing but whitespace, JSON formatting and exact duplicates.
+**What you trade at the default level:** runs of near-identical lines are folded to first, last and value
+ranges, so individual IDs inside a folded run are not kept. The full corpus, including where it loses
+facts, is in [Cost Benchmarks](#cost-benchmarks) and reproducible with `latent-gate --optimizer-benchmark`.
+
+Works in Claude Code, Claude Desktop, Cursor, Cline, Continue and Zed. A hosted version
+(`latent-gate mcp --http`) also runs where local servers can't, such as claude.ai on the web and mobile.
 
 ---
 

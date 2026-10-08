@@ -156,10 +156,11 @@ def _all_tools() -> list[types.Tool]:
             description=(
                 "Fetch a public web page, JSON API response, raw log or doc by URL and "
                 "return a token-optimized version: HTML is reduced to its visible text, "
-                "JSON is compacted losslessly, repetitive lines are folded with value "
-                "ranges kept. Deterministic and fact-preserving (no summarizing model), "
-                "so numbers, code and URLs survive byte-for-byte. Pass `question` to "
-                "focus on what you need. Private/internal addresses are refused."
+                "JSON is compacted losslessly, runs of near-identical lines are folded "
+                "(first, last and value ranges kept). Deterministic, no summarizing model; "
+                "code, URLs and quoted strings come back byte-for-byte. Use level=lossless "
+                "when every line must survive. Pass `question` to focus on what you need. "
+                "Private/internal addresses are refused."
             ),
             inputSchema={
                 "type": "object",
