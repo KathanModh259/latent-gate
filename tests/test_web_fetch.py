@@ -18,7 +18,9 @@ def test_html_to_text_keeps_visible_text_only():
     assert text == "Hello world & co\na"
 
 
-@pytest.mark.parametrize("url", ["file:///etc/passwd", "ftp://example.com/", "gopher://x/", "nohost"])
+@pytest.mark.parametrize(
+    "url", ["file:///etc/passwd", "ftp://example.com/", "gopher://x/", "nohost"]
+)
 def test_rejects_non_http_schemes(url):
     with pytest.raises(ValueError):
         fetch_text(url)

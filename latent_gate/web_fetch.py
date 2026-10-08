@@ -44,8 +44,28 @@ class _TextExtractor(HTMLParser):
     """Visible text of an HTML page; one line per block element."""
 
     _SKIP = {"script", "style", "noscript", "svg", "head", "template", "iframe"}
-    _BLOCK = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6",
-              "section", "article", "pre", "table", "ul", "ol", "header", "footer", "blockquote"}
+    _BLOCK = {
+        "p",
+        "div",
+        "br",
+        "li",
+        "tr",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "section",
+        "article",
+        "pre",
+        "table",
+        "ul",
+        "ol",
+        "header",
+        "footer",
+        "blockquote",
+    }
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -99,11 +119,15 @@ def fetch_text(url: str) -> dict:
         conn = cls(parts.hostname, parts.port, timeout=TIMEOUT_S)
         target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
         try:
-            conn.request("GET", target, headers={
-                "User-Agent": "LatentGate (+https://pypi.org/project/latent-gate/)",
-                "Accept": "text/html,application/json,text/plain;q=0.9,*/*;q=0.1",
-                "Accept-Encoding": "identity",
-            })
+            conn.request(
+                "GET",
+                target,
+                headers={
+                    "User-Agent": "LatentGate (+https://pypi.org/project/latent-gate/)",
+                    "Accept": "text/html,application/json,text/plain;q=0.9,*/*;q=0.1",
+                    "Accept-Encoding": "identity",
+                },
+            )
             resp = conn.getresponse()
             if resp.status in (301, 302, 303, 307, 308) and resp.getheader("Location"):
                 url = urljoin(url, resp.getheader("Location"))
@@ -125,8 +149,9 @@ def fetch_text(url: str) -> dict:
         charset = resp.headers.get_content_charset() or "utf-8"
         text = body.decode(charset, errors="replace")
         title = ""
-        if "html" in ctype.lower() or text.lstrip()[:15].lower().startswith(("<!doctype html", "<html")):
+        if "html" in ctype.lower() or text.lstrip()[:15].lower().startswith(
+            ("<!doctype html", "<html")
+        ):
             title, text = html_to_text(text)
         return {"url": url, "content_type": ctype.split(";")[0], "title": title, "text": text}
     raise ValueError(f"Too many redirects (>{MAX_REDIRECTS})")
-
