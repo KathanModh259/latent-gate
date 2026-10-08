@@ -57,8 +57,11 @@ byte-for-byte; `level="lossless"` changes nothing but whitespace, JSON formattin
 ranges, so individual IDs inside a folded run are not kept. The full corpus, including where it loses
 facts, is in [Cost Benchmarks](#cost-benchmarks) and reproducible with `latent-gate --optimizer-benchmark`.
 
-Works in Claude Code, Claude Desktop, Cursor, Cline, Continue and Zed. A hosted version
-(`latent-gate mcp --http`) also runs where local servers can't, such as claude.ai on the web and mobile.
+Works in Claude Code, Claude Desktop, Cursor, Cline, Continue and Zed, free and offline.
+
+**Don't want to install anything?** The official [hosted LatentGate on mcprush](https://mcprush.com/kathanmodh259/latentgate-hosted-mcp)
+also runs where local servers can't, such as claude.ai on the web and mobile. It has a free tier
+(300 calls a month) and paid plans from $9/month.
 
 ---
 
