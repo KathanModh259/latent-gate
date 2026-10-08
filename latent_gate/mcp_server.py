@@ -21,11 +21,20 @@ Claude Desktop / Cursor / Cline / Continue / Zed:
 
 The optimizer tools (read_file_optimized, optimize_text, count_tokens) need
 no Ollama and no API key. The compress_* tools use local Ollama models.
+
+Hosted (remote) mode, for a gateway such as mcprush:
+    latent-gate mcp --http [--port 8000]
+Serves streamable HTTP at /mcp. Tools that take a file path are hidden, since
+they would read the server's disk. Set LATENTGATE_API_KEY to require
+`Authorization: Bearer <key>` so callers can't bypass the paying gateway.
 """
 
+import argparse
 import asyncio
+import hmac
 import json
 import logging
+import os
 
 try:
     from mcp.server import Server, NotificationOptions
@@ -48,6 +57,22 @@ logging.basicConfig(level=logging.INFO)
 
 MAX_FILE_BYTES = 20 * 1024 * 1024  # read_file_optimized refuses larger files
 _LEVELS = ["lossless", "balanced", "aggressive"]
+
+# Set by --http. Path-taking tools read whatever disk the server runs on, which
+# remotely means *our* disk, so they are never exposed there. get_stats reports
+# process-wide counters, which on a shared server would mix every customer's usage.
+_REMOTE = False
+_LOCAL_ONLY_TOOLS = {"read_file_optimized", "compress_image", "get_stats"}
+# Ollama-backed tools are only listed remotely when the host actually runs Ollama.
+_OLLAMA_TOOLS = {"compress_text", "compress_conversation", "compress_documents"}
+MAX_REMOTE_INPUT_BYTES = 2 * 1024 * 1024  # per hosted call; plans bill per call, not per byte
+
+
+def _hidden_remotely() -> set[str]:
+    hidden = set(_LOCAL_ONLY_TOOLS)
+    if os.environ.get("LATENTGATE_HOSTED_OLLAMA", "").lower() not in ("1", "true", "yes"):
+        hidden |= _OLLAMA_TOOLS
+    return hidden
 
 
 # ============================================================================
@@ -79,7 +104,15 @@ app = Server("latent-gate")
 
 @app.list_tools()
 async def list_tools() -> list[types.Tool]:
-    """List all tools exposed by this MCP server."""
+    """List the tools exposed in the current mode."""
+    tools = _all_tools()
+    if _REMOTE:
+        hidden = _hidden_remotely()
+        tools = [t for t in tools if t.name not in hidden]
+    return tools
+
+
+def _all_tools() -> list[types.Tool]:
     level_schema = {
         "type": "string",
         "enum": _LEVELS,
@@ -116,6 +149,35 @@ async def list_tools() -> list[types.Tool]:
                     },
                 },
                 "required": ["path"],
+            },
+        ),
+        types.Tool(
+            name="fetch_url_optimized",
+            description=(
+                "Fetch a public web page, JSON API response, raw log or doc by URL and "
+                "return a token-optimized version: HTML is reduced to its visible text, "
+                "JSON is compacted losslessly, repetitive lines are folded with value "
+                "ranges kept. Deterministic and fact-preserving (no summarizing model), "
+                "so numbers, code and URLs survive byte-for-byte. Pass `question` to "
+                "focus on what you need. Private/internal addresses are refused."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "http(s) URL"},
+                    "question": {
+                        "type": "string",
+                        "default": "",
+                        "description": "What you're looking for (focuses sentence selection)",
+                    },
+                    "level": level_schema,
+                    "max_tokens": {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Token budget for the result (0 = no budget)",
+                    },
+                },
+                "required": ["url"],
             },
         ),
         types.Tool(
@@ -236,6 +298,10 @@ async def list_tools() -> list[types.Tool]:
 async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     """Execute a tool call. Blocking work always runs off the event loop."""
     try:
+        if _REMOTE:
+            if name in _hidden_remotely():
+                raise ValueError(f"{name} is only available when LatentGate runs locally")
+            _check_remote_limits(name, arguments)
         if name in _OPTIMIZER_TOOLS:
             response = await asyncio.to_thread(_OPTIMIZER_TOOLS[name], arguments)
         else:
@@ -316,6 +382,21 @@ def _tool_optimize_text(arguments: dict) -> dict:
     return _optimize_payload(result, {})
 
 
+def _tool_fetch_url_optimized(arguments: dict) -> dict:
+    from latent_gate.web_fetch import fetch_text
+
+    page = fetch_text(arguments["url"])
+    result = _optimizer_for(arguments).optimize(
+        page["text"],
+        question=arguments.get("question", ""),
+        max_tokens=int(arguments.get("max_tokens") or 0),
+    )
+    extra = {"url": page["url"], "content_type": page["content_type"]}
+    if page["title"]:
+        extra["title"] = page["title"]
+    return _optimize_payload(result, extra)
+
+
 def _tool_count_tokens(arguments: dict) -> dict:
     return {"tokens": count_tokens(arguments["text"]), "token_counter": token_counter_name()}
 
@@ -323,6 +404,7 @@ def _tool_count_tokens(arguments: dict) -> dict:
 _OPTIMIZER_TOOLS = {
     "read_file_optimized": _tool_read_file_optimized,
     "optimize_text": _tool_optimize_text,
+    "fetch_url_optimized": _tool_fetch_url_optimized,
     "count_tokens": _tool_count_tokens,
 }
 
@@ -392,26 +474,102 @@ def _run_pipeline_tool(pipeline, name: str, arguments: dict) -> dict:
 # ============================================================================
 
 
-async def main():
-    """Run the MCP server over stdio."""
-    async with stdio_server() as (read_stream, write_stream):
-        await app.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="latent-gate",
-                server_version=__import__("latent_gate").__version__,
-                capabilities=app.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
+def _check_remote_limits(name: str, arguments: dict) -> None:
+    """Reject remote calls whose input is too large to serve on one plan call.
+
+    Raise ValueError (its message goes back to the caller) to refuse a call.
+    """
+    size = len(json.dumps(arguments))  # covers text, documents and messages alike
+    if size > MAX_REMOTE_INPUT_BYTES:
+        raise ValueError(
+            f"Input is {size / 1048576:.1f}MB; hosted limit is "
+            f"{MAX_REMOTE_INPUT_BYTES // 1048576}MB per call. Split it, or run LatentGate locally."
         )
 
 
-def cli_main():
-    """Console-script entry point for latent-gate-mcp."""
-    asyncio.run(main())
+def _init_options() -> InitializationOptions:
+    return InitializationOptions(
+        server_name="latent-gate",
+        server_version=__import__("latent_gate").__version__,
+        capabilities=app.get_capabilities(
+            notification_options=NotificationOptions(),
+            experimental_capabilities={},
+        ),
+    )
+
+
+def serve_http(host: str, port: int) -> None:
+    """Run the MCP server over streamable HTTP at /mcp (stateless, JSON responses)."""
+    import uvicorn  # ships with the mcp package
+
+    uvicorn.run(build_http_app(), host=host, port=port, log_level="info")
+
+
+def build_http_app():
+    """The Starlette app behind --http: /mcp (Bearer-gated when a key is set) and /health."""
+    import contextlib
+
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from starlette.applications import Starlette
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+
+    # Stateless: every request stands alone, so any instance can serve it and
+    # idle instances can be stopped (mcprush hosting does this).
+    manager = StreamableHTTPSessionManager(app=app, stateless=True, json_response=True)
+    api_key = os.environ.get("LATENTGATE_API_KEY", "")
+    if not api_key:
+        logger.warning("LATENTGATE_API_KEY not set: /mcp is open to anyone who finds the URL")
+
+    async def mcp_endpoint(scope, receive, send):
+        if api_key:
+            headers = dict(scope["headers"])
+            sent = headers.get(b"authorization", b"").decode("latin-1")
+            if not hmac.compare_digest(sent, f"Bearer {api_key}"):
+                await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
+                return
+        await manager.handle_request(scope, receive, send)
+
+    async def health(_request):
+        return JSONResponse({"status": "ok"})
+
+    class _ASGI:  # Route treats a plain callable as a request handler; a class instance as raw ASGI
+        def __init__(self, fn):
+            self.fn = fn
+
+        async def __call__(self, scope, receive, send):
+            await self.fn(scope, receive, send)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app):
+        async with manager.run():
+            yield
+
+    return Starlette(
+        routes=[Route("/mcp", endpoint=_ASGI(mcp_endpoint)), Route("/health", endpoint=health)],
+        lifespan=lifespan,
+    )
+
+
+async def main():
+    """Run the MCP server over stdio."""
+    async with stdio_server() as (read_stream, write_stream):
+        await app.run(read_stream, write_stream, _init_options())
+
+
+def cli_main(argv: Optional[list[str]] = None):
+    """Console-script entry point for latent-gate-mcp (stdio, or --http for hosting)."""
+    global _REMOTE
+    parser = argparse.ArgumentParser(prog="latent-gate mcp")
+    parser.add_argument("--http", action="store_true", help="serve streamable HTTP at /mcp")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
+    args = parser.parse_args(argv)
+    if args.http:
+        _REMOTE = True
+        serve_http(args.host, args.port)
+    else:
+        asyncio.run(main())
 
 
 if __name__ == "__main__":

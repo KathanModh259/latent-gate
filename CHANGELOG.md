@@ -5,6 +5,20 @@ All notable changes to LatentGate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-10-08
+
+### Added
+
+- Hosted MCP mode: `latent-gate mcp --http` serves stateless streamable HTTP at `/mcp`
+  plus `/health`, for paid gateways such as mcprush. Optional Bearer auth via
+  `LATENTGATE_API_KEY`; disk-reading tools and `get_stats` are hidden, Ollama tools are
+  opt-in via `LATENTGATE_HOSTED_OLLAMA`, and input is capped at 2MB per call
+- `Dockerfile.mcp`: small image for the hosted MCP server with the tokenizer baked in
+- `fetch_url_optimized` MCP tool (local and hosted): fetch a URL, reduce HTML to visible
+  text, then run the optimizer. Refuses non-public addresses (checked on the connected
+  socket, so DNS rebinding can't reach localhost or cloud metadata) and follows redirects
+  with the same check on every hop
+
 ## [1.3.1] - 2026-09-25
 
 ### Added

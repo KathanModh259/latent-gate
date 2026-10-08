@@ -53,7 +53,7 @@ def _run_mcp_server():
             file=sys.stderr,
         )
         sys.exit(1)
-    cli_main()
+    cli_main(sys.argv[2:])
 
 
 def main():

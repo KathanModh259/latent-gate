@@ -8,7 +8,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.3.1-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.4.0-orange.svg)](CHANGELOG.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Ollama](https://img.shields.io/badge/Ollama-local%20LLM-black.svg)](https://ollama.com)
 [![MCP](https://img.shields.io/badge/MCP-supported-purple.svg)](https://modelcontextprotocol.io)
@@ -553,6 +553,35 @@ is the CLI and will not speak MCP. The image and `compress_*` tools additionally
 `ollama pull llava:7b` and `ollama pull phi3:mini`.
 
 See `integrations/` folder for detailed setup guides per tool.
+
+### Hosted MCP (remote, for gateways like mcprush)
+
+```bash
+docker build -f Dockerfile.mcp -t latent-gate-mcp .
+docker run -p 8000:8000 -e LATENTGATE_API_KEY=change-me latent-gate-mcp
+# or without Docker:  latent-gate mcp --http --port 8000
+```
+
+Serves streamable HTTP at `/mcp` (stateless, so any instance can answer any request) and
+`/health`. Because it's remote, it also works where local MCP servers can't run: claude.ai
+on the web and mobile, and any client that only takes a connector URL. The main tool there is
+`fetch_url_optimized`. It fetches a page, JSON API or raw log by URL and returns the visible text,
+compacted and deduplicated without a summarizing model. Addresses that aren't public
+(localhost, 10.x, cloud metadata) are refused, and that's checked on the live connection, so
+DNS tricks don't get around it. In this mode:
+
+- `read_file_optimized`, `compress_image` and `get_stats` are hidden. The first two would
+  read the *server's* disk, and stats would mix all callers' usage.
+- `compress_*` tools are listed only when `LATENTGATE_HOSTED_OLLAMA=1` (the host runs Ollama).
+- Each call's input is capped at 2MB.
+- With `LATENTGATE_API_KEY` set, requests need `Authorization: Bearer <key>`. Give the key
+  to your gateway and nobody else, so callers can't bypass the paid plan.
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `LATENTGATE_API_KEY` | unset (open, warns) | Bearer key the gateway must send |
+| `LATENTGATE_HOSTED_OLLAMA` | off | Expose the Ollama-backed `compress_*` tools |
+| `PORT` | `8000` | Listen port (most hosts set this) |
 
 ---
 

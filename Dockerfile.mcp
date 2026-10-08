@@ -1,0 +1,22 @@
+# Hosted MCP server (streamable HTTP at /mcp) for gateways such as mcprush.
+#   docker build -f Dockerfile.mcp -t latent-gate-mcp .
+#   docker run -p 8000:8000 -e LATENTGATE_API_KEY=... latent-gate-mcp
+# Stateless and diskless: nothing is written at runtime, so instances can be
+# stopped and scaled freely.
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY pyproject.toml README.md LICENSE ./
+COPY latent_gate/ ./latent_gate/
+RUN pip install --no-cache-dir ".[mcp,tokens]" \
+    && python -c "import tiktoken; tiktoken.get_encoding('o200k_base')" \
+    && useradd --create-home appuser
+# ^ bakes the tokenizer into the image so cold starts don't download it
+
+USER appuser
+ENV PYTHONUNBUFFERED=1 PORT=8000
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://localhost:{os.environ[\"PORT\"]}/health')" || exit 1
+
+CMD ["latent-gate", "mcp", "--http"]

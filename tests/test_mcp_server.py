@@ -10,7 +10,7 @@ from latent_gate.mcp_server import call_tool, list_tools
 @pytest.mark.asyncio
 async def test_list_tools():
     tools = await list_tools()
-    assert len(tools) == 8
+    assert len(tools) == 9
     names = [t.name for t in tools]
     for offline in ("read_file_optimized", "optimize_text", "count_tokens"):
         assert offline in names
@@ -88,3 +88,54 @@ def test_mcp_module_import_is_fast():
     start = time.perf_counter()
     subprocess.run([sys.executable, "-c", "import latent_gate.mcp_server"], check=True)
     assert time.perf_counter() - start < 15
+
+
+# ---------------------------------------------------------------------------
+# Hosted (--http) mode
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def remote(monkeypatch):
+    monkeypatch.setattr("latent_gate.mcp_server._REMOTE", True)
+    monkeypatch.delenv("LATENTGATE_HOSTED_OLLAMA", raising=False)
+
+
+@pytest.mark.asyncio
+async def test_remote_hides_disk_and_ollama_tools(remote, monkeypatch):
+    names = {t.name for t in await list_tools()}
+    assert names == {"fetch_url_optimized", "optimize_text", "count_tokens"}
+
+    monkeypatch.setenv("LATENTGATE_HOSTED_OLLAMA", "1")
+    names = {t.name for t in await list_tools()}
+    assert "compress_text" in names and "read_file_optimized" not in names
+
+
+@pytest.mark.asyncio
+async def test_remote_refuses_server_disk_reads(remote):
+    out = (await call_tool("read_file_optimized", {"path": __file__}))[0].text
+    assert "only available when LatentGate runs locally" in out
+
+
+@pytest.mark.asyncio
+async def test_remote_rejects_oversized_input(remote):
+    out = (await call_tool("optimize_text", {"text": "x" * (3 * 1024 * 1024)}))[0].text
+    assert "hosted limit" in out
+
+
+def test_http_requires_bearer_key(monkeypatch):
+    from starlette.testclient import TestClient
+
+    from latent_gate.mcp_server import build_http_app
+
+    monkeypatch.setenv("LATENTGATE_API_KEY", "secret")
+    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    with TestClient(build_http_app()) as client:
+        assert client.get("/health").json() == {"status": "ok"}
+        assert client.post("/mcp", json=body, headers=headers).status_code == 401
+        wrong = {**headers, "Authorization": "Bearer nope"}
+        assert client.post("/mcp", json=body, headers=wrong).status_code == 401
+        ok = client.post("/mcp", json=body, headers={**headers, "Authorization": "Bearer secret"})
+        assert ok.status_code == 200
+        assert "optimize_text" in {t["name"] for t in ok.json()["result"]["tools"]}

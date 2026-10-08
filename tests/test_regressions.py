@@ -185,7 +185,7 @@ def test_cli_mcp_subcommand_starts_mcp_server(monkeypatch):
     from latent_gate import cli
 
     started = []
-    monkeypatch.setattr(sys, "argv", ["latent-gate", "mcp"])
-    monkeypatch.setattr("latent_gate.mcp_server.cli_main", lambda: started.append(True))
+    monkeypatch.setattr(sys, "argv", ["latent-gate", "mcp", "--http"])
+    monkeypatch.setattr("latent_gate.mcp_server.cli_main", lambda argv: started.append(argv))
     cli.main()
-    assert started == [True]
+    assert started == [["--http"]]  # flags after `mcp` reach the MCP server
