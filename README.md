@@ -29,6 +29,9 @@
 
 ## See it work
 
+**[Try it in your browser →](https://kathanmodh259.github.io/latent-gate/)** The real optimizer runs on your
+machine via WebAssembly; nothing you paste is uploaded.
+
 A 400-line error log, read through LatentGate (`balanced`, measured with `tiktoken`):
 
 ```text
