@@ -244,7 +244,7 @@ function App() {
                   <div><div style={{ fontSize: '0.75rem', color: '#64748b' }}>Saved</div><div className="pixel-font" style={{ color: 'var(--accent-neon)' }}>{saved}%</div></div>
                 </div>
                 <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.75rem', textAlign: 'center' }}>
-                  Tokens {result.counter === 'heuristic' ? 'estimated (about ±6%; the installed package counts exactly with tiktoken)' : `counted with ${result.counter}`} · {result.ms.toFixed(1)} ms in your browser
+                  Tokens {result.counter === 'heuristic' ? 'estimated in the browser (the installed package counts exactly with tiktoken; totals can differ by 10% or so, the % saved barely moves)' : `counted with ${result.counter}`} · {result.ms.toFixed(1)} ms in your browser
                 </p>
               </div>
             )}
