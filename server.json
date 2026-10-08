@@ -3,7 +3,7 @@
   "name": "io.github.KathanModh259/latent-gate",
   "title": "LatentGate",
   "description": "Read large logs, JSON and docs in a fraction of the tokens. Offline, fact-preserving optimizer.",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "repository": {
     "url": "https://github.com/KathanModh259/latent-gate",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "latent-gate",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "runtimeHint": "uvx",
       "runtimeArguments": [
         {

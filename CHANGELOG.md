@@ -5,6 +5,16 @@ All notable changes to LatentGate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-10-08
+
+### Changed
+
+- LICENSE: new "No Hosting as a Service" clause. The Software may not be offered to third
+  parties as a hosted, managed or API service (free or paid, including re-listing on a
+  marketplace or gateway). Personal and internal business use remain permitted, and the
+  hosted offering operated by the author is the only licensed one. This is a licence-only
+  release; the code is identical to 1.4.1
+
 ## [1.4.1] - 2026-10-08
 
 ### Changed
