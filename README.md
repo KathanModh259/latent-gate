@@ -32,11 +32,11 @@
 A 400-line error log, read through LatentGate (`balanced`, measured with `tiktoken`):
 
 ```text
-BEFORE  12,037 tokens
+BEFORE  13,641 tokens
 2026-10-08 09:00:00 ERROR order 10000 failed: payment gateway timeout after 2982ms (retry 1/3)
 ... 398 more lines in the same shape ...
 
-AFTER   127 tokens  (98.9% saved)
+AFTER   145 tokens  (98.9% saved)
 2026-10-08 09:00:00 INFO app started, 3 workers
 2026-10-08 09:00:00 ERROR order 10000 failed: payment gateway timeout after 2982ms (retry 1/3)
 [… 398 similar lines: order 10001…10398, 2900…3100 ms …]

@@ -5,6 +5,18 @@ All notable changes to LatentGate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Website rebuilt around a real in-browser demo: the published latent-gate package runs via
+  Pyodide on the visitor's machine (nothing uploaded), with one-click samples and the three
+  levels. Replaces a demo that called a non-existent API and showed mock output. Pricing now
+  shows the free local install and the hosted plans. Published on GitHub Pages
+- Corrected the README demo numbers: the 400-line log is 13,641 -> 145 tokens with tiktoken
+  (98.9% saved). The earlier 12,037 -> 127 figures came from the built-in estimator but were
+  labelled as tiktoken
+
 ## [1.4.2] - 2026-10-08
 
 ### Changed

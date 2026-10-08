@@ -163,6 +163,9 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Grid Layouts */
 .grid { display: grid; }
+/* Grid items default to min-width:auto, so one long unbreakable line (a shell command)
+   would widen the whole page on phones. */
+.grid > * { min-width: 0; }
 .grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
 .grid-cols-3 { grid-template-columns: repeat(3, 1fr); }
 .gap-8 { gap: 2rem; }

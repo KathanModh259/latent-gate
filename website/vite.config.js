@@ -1,11 +1,16 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// The in-browser demo loads Pyodide from jsDelivr and the latent-gate wheel from PyPI
+const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' ws://localhost:5173 https://cdn.jsdelivr.net https://pypi.org https://files.pythonhosted.org;"
+
 export default defineConfig({
   plugins: [react()],
+  // GitHub Pages serves the site under /latent-gate/; Vercel and local dev serve it at /
+  base: process.env.PAGES_BASE || '/',
   server: {
     headers: {
-      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' http://localhost:8000 ws://localhost:8000 https://*.latentgate.ai ws://*.latentgate.ai;",
+      'Content-Security-Policy': CSP,
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'X-XSS-Protection': '1; mode=block',
