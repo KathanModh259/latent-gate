@@ -5,6 +5,16 @@ All notable changes to LatentGate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-10-08
+
+### Changed
+
+- README leads with the offline optimizer: a measured 12,037 -> 127 token log example, the
+  one-line Claude Code install, and a plain statement of what is exact (`lossless` level, code,
+  URLs, quoted strings) versus traded at the default level (IDs inside folded log runs)
+- `fetch_url_optimized` description no longer claims every number survives; it points to
+  `level=lossless` for when every line must be kept
+
 ## [1.4.0] - 2026-10-08
 
 ### Added
