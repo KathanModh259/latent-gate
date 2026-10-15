@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Pyodide on the visitor's machine (nothing uploaded), with one-click samples and the three
   levels. Replaces a demo that called a non-existent API and showed mock output. Pricing now
   shows the free local install and the hosted plans. Published on GitHub Pages
+- Links to the official LatentGate Context Saver skill on Agensi (README and website)
 - Corrected the README demo numbers: the 400-line log is 13,641 -> 145 tokens with tiktoken
   (98.9% saved). The earlier 12,037 -> 127 figures came from the built-in estimator but were
   labelled as tiktoken

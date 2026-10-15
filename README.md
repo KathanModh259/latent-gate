@@ -130,6 +130,10 @@ uvx --from "latent-gate[mcp,tokens]" latent-gate --optimizer-benchmark
 claude mcp add latent-gate -- uvx --from "latent-gate[mcp,tokens]" latent-gate-mcp
 ```
 
+**Any agent — from the Agensi marketplace:** [LatentGate Context Saver](https://www.agensi.io/skills/latentgate-context-saver)
+is the official skill for Claude Code, Cursor, Codex CLI and 20+ other agents. It sets LatentGate up
+if it's missing, works with the local and hosted editions, and tells your agent when to use it.
+
 **Claude Desktop** — add to `claude_desktop_config.json` and restart:
 
 ```json

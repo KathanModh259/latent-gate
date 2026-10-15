@@ -5,6 +5,7 @@ import { loadOptimizer, optimize, PACKAGE_VERSION } from './utils/optimizer';
 const MAX_INPUT_CHARS = parseInt(import.meta.env.VITE_MAX_INPUT_CHARS || '200000', 10);
 const HOSTED_URL = 'https://mcprush.com/kathanmodh259/latentgate-hosted-mcp';
 const GITHUB_URL = 'https://github.com/KathanModh259/latent-gate';
+const AGENSI_URL = 'https://www.agensi.io/skills/latentgate-context-saver';
 const CLAUDE_CODE_CMD = 'claude mcp add --scope user latent-gate -- uvx --from "latent-gate[mcp,tokens]" latent-gate-mcp';
 
 const LEVELS = {
@@ -262,6 +263,7 @@ function App() {
             <h3 className="pixel-font mb-4" style={{ fontSize: '0.9rem' }}><Terminal size={16} /> Claude Code, Cursor, Zed… (free)</h3>
             <CopyLine text={CLAUDE_CODE_CMD} />
             <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.75rem' }}>Runs on your machine. Needs <a href="https://docs.astral.sh/uv/" target="_blank" rel="noreferrer">uv</a>.</p>
+            <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.5rem' }}>Using another agent? Get the official skill on <a href={AGENSI_URL} target="_blank" rel="noreferrer">Agensi</a>: it sets LatentGate up and tells your agent when to use it.</p>
           </div>
           <div className="pixel-border">
             <h3 className="pixel-font mb-4" style={{ fontSize: '0.9rem' }}><Cloud size={16} /> claude.ai web &amp; mobile (hosted)</h3>
