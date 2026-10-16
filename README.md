@@ -18,6 +18,7 @@
 [![Vercel](https://img.shields.io/badge/Deploy-Vercel-black.svg)](.github/workflows/deploy-website.yml)
 [![CI](https://github.com/KathanModh259/latent-gate/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/KathanModh259/latent-gate/actions/workflows/ci.yml)
 [![Downloads](https://img.shields.io/pypi/dm/latent-gate?logo=pypi)](https://pypi.org/project/latent-gate/)
+[![Listed on mcpservers.org](https://mcpservers.org/badge.svg)](https://mcpservers.org/servers/kathanmodh259/latent-gate)
 
 [**Use in Claude**](#use-it-in-claude) | [**Quick Start**](#quick-start) | [**Python API**](#python-api) | [**REST API**](#rest-api) | [**Monitoring**](#monitoring) | [**Load Testing**](#load-testing) | [**Deployment**](#vercel-deployment) | [**AI Tools**](#ai-coding-tool-integration-mcp) | [**Benchmarks**](#cost-benchmarks) | [**Contributing**](#contributing)
 
