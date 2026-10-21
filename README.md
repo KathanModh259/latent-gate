@@ -63,7 +63,7 @@ facts, is in [Cost Benchmarks](#cost-benchmarks) and reproducible with `latent-g
 
 Works in Claude Code, Claude Desktop, Cursor, Cline, Continue and Zed, free and offline.
 
-**Don't want to install anything?** The official [hosted LatentGate on mcprush](https://mcprush.com/kathanmodh259/latentgate-hosted-mcp)
+**Don't want to install anything?** The official [hosted LatentGate on mcprush](https://mcprush.com/kathanmodh259/latentgate-mcp)
 also runs where local servers can't, such as claude.ai on the web and mobile. It has a free tier
 (300 calls a month) and paid plans from $9/month.
 

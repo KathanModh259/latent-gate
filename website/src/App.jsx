@@ -3,7 +3,7 @@ import { Terminal, Zap, ChevronRight, Activity, ArrowRight, Code, Loader2, Check
 import { loadOptimizer, optimize, PACKAGE_VERSION } from './utils/optimizer';
 
 const MAX_INPUT_CHARS = parseInt(import.meta.env.VITE_MAX_INPUT_CHARS || '200000', 10);
-const HOSTED_URL = 'https://mcprush.com/kathanmodh259/latentgate-hosted-mcp';
+const HOSTED_URL = 'https://mcprush.com/kathanmodh259/latentgate-mcp';
 const GITHUB_URL = 'https://github.com/KathanModh259/latent-gate';
 const AGENSI_URL = 'https://www.agensi.io/skills/latentgate-context-saver';
 const CLAUDE_CODE_CMD = 'claude mcp add --scope user latent-gate -- uvx --from "latent-gate[mcp,tokens]" latent-gate-mcp';
